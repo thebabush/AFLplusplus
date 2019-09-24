@@ -29,8 +29,11 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
-
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <list>
 #include <string>
 #include <fstream>
@@ -95,6 +98,7 @@ bool AFLCoverage::runOnModule(Module &M) {
 
   IntegerType *Int8Ty = IntegerType::getInt8Ty(C);
   IntegerType *Int32Ty = IntegerType::getInt32Ty(C);
+  unsigned int fixed_cur_loc = 0;
   unsigned int cur_loc = 0;
 
   /* Show a banner */
@@ -119,6 +123,34 @@ bool AFLCoverage::runOnModule(Module &M) {
       FATAL("Bad value of AFL_INST_RATIO (must be between 1 and 100)");
 
   }
+
+  char *fn = NULL, *lockfile = NULL;
+  int fd;
+  if ((fn = getenv("AFL_LLVM_EXACT_BB_COV"))) {
+    int first = 1, len;
+    char buf[16] = "";
+    if ((lockfile = (char*)malloc(strlen(fn) + 5)) == NULL)
+      PFATAL("memory");
+    snprintf(lockfile, strlen(fn) + 5, "%s.lck", fn); 
+    while ((fd = open(lockfile, O_CREAT | O_EXCL | O_RDWR, 0600)) < 0) {
+      if (first) {
+        SAYF(cYEL "[!] " cBRI "Lock file is present, waiting for other tasks to finish. -j does not make sense in AFL_LLVM_EXACT_BB_COV mode!");
+        first = 0;
+      }
+      sleep(1);
+    }
+    close(fd);
+    // now read number from fn
+    if ((fd = open(fn, O_CREAT | O_RDWR, 0600)) < 0)
+      PFATAL("cannot open instrumentation counter file");
+    if ((len = read(fd, buf, sizeof(buf)) < 0))
+      PFATAL("cannot read instrumentation counter file");
+    else
+      fixed_cur_loc = atoi(buf);
+    // we keep the file open
+  }
+
+
 
 #if LLVM_VERSION_MAJOR < 9
   char *neverZero_counters_str = getenv("AFL_LLVM_NOT_ZERO");
@@ -246,22 +278,37 @@ bool AFLCoverage::runOnModule(Module &M) {
       }
 
       // fprintf(stderr, " == %d\n", more_than_one);
-      if (more_than_one != 1) continue;
+      // we can do this performance trick if we dont to AFL_LLVM_EXACT_BB_COV
+      if (fn == NULL && more_than_one != 1) continue;
 
-      ConstantInt *CurLoc = ConstantInt::get(Int32Ty, cur_loc);
 
-      /* Load prev_loc */
+      Value *MapLocation;
+      
+      if (fn) { // AFL_LLVM_EXACT_BB_COV
 
-      LoadInst *PrevLoc = IRB.CreateLoad(AFLPrevLoc);
-      PrevLoc->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
-      Value *PrevLocCasted = IRB.CreateZExt(PrevLoc, IRB.getInt32Ty());
+        MapLocation = ConstantInt::get(Int32Ty, fixed_cur_loc);
+        fixed_cur_loc++;
+        if (fixed_cur_loc >= MAP_SIZE)
+          PFATAL("too many blocks to instrument, increase MAP_SIZE_POW2!");
+
+      } else {
+
+        ConstantInt *CurLoc = ConstantInt::get(Int32Ty, cur_loc);
+
+        /* Load prev_loc */
+
+        LoadInst *PrevLoc = IRB.CreateLoad(AFLPrevLoc);
+        PrevLoc->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
+        Value *PrevLocCasted = IRB.CreateZExt(PrevLoc, IRB.getInt32Ty());
+        MapLocation = IRB.CreateXor(PrevLocCasted, CurLoc);
+
+      }
 
       /* Load SHM pointer */
 
       LoadInst *MapPtr = IRB.CreateLoad(AFLMapPtr);
       MapPtr->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
-      Value *MapPtrIdx =
-          IRB.CreateGEP(MapPtr, IRB.CreateXor(PrevLocCasted, CurLoc));
+      Value *MapPtrIdx = IRB.CreateGEP(MapPtr, MapLocation);
 
       /* Update bitmap */
 
@@ -341,25 +388,46 @@ bool AFLCoverage::runOnModule(Module &M) {
       IRB.CreateStore(Incr, MapPtrIdx)
           ->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
 
-      /* Set prev_loc to cur_loc >> 1 */
 
-      StoreInst *Store =
-          IRB.CreateStore(ConstantInt::get(Int32Ty, cur_loc >> 1), AFLPrevLoc);
-      Store->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
+      if (fn == NULL) { // not AFL_LLVM_EXACT_BB_COV
+
+        /* Set prev_loc to cur_loc >> 1 */
+  
+        StoreInst *Store =
+            IRB.CreateStore(ConstantInt::get(Int32Ty, cur_loc >> 1), AFLPrevLoc);
+        Store->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
+      }
 
       inst_blocks++;
 
     }
 
+  /* cleanup */
+  if (fn) { // AFL_LLVM_EXACT_BB_COV
+    // write number
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%u", fixed_cur_loc);
+    lseek(fd, 0, SEEK_SET);
+    if (write(fd, buf, strlen(buf) + 1) < 1)
+      PFATAL("write to instrumentation counter file failed");
+    close(fd);
+    unlink(lockfile);
+    free(lockfile);
+  }
+
   /* Say something nice. */
 
   if (!be_quiet) {
+  
+    char buf[48] = "";
+    if (fn) // AFL_LLVM_EXACT_BB_COV
+      snprintf(buf, sizeof(buf), ", with %u total locations", fixed_cur_loc);
 
     if (!inst_blocks)
       WARNF("No instrumentation targets found.");
     else
-      OKF("Instrumented %u locations (%s mode, ratio %u%%).", inst_blocks,
-          getenv("AFL_HARDEN")
+      OKF("Instrumented %u locations%s (%s mode, ratio %u%%).", inst_blocks,
+          buf, getenv("AFL_HARDEN")
               ? "hardened"
               : ((getenv("AFL_USE_ASAN") || getenv("AFL_USE_MSAN"))
                      ? "ASAN/MSAN"
