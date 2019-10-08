@@ -1,9 +1,10 @@
 //
 // There are some TODOs in this file:
-//   - dont instrument blocks that are uninterested
+//   - fix instrumentation via external call
+//   - fix inline instrumentation
 //   - implement whitelist feature
-//   - implement notZero
-//   - fix crash
+//   - dont instrument blocks that are uninteresting
+//   - implement neverZero
 //
 
 /*
@@ -13,7 +14,7 @@
    Written by Austin Seipp <aseipp@pobox.com> with bits from
               Emese Revfy <re.emese@gmail.com>
 
-   Updated by Thorsten Schulz <thorsten.schulz@uni-rostock.de>
+   Fixed by Heiko Eißfeldt 2019 for AFL++
 
    GCC integration design is based on the LLVM design, which comes
    from Laszlo Szekeres. Some of the boilerplate code below for
@@ -88,8 +89,7 @@
 
 static int be_quiet = 0;
 static unsigned int inst_ratio = 100;
-static bool inst_ext = true; /* I reckon inline is broken / unfunctional */
-
+static bool inst_ext = true;
 
 static unsigned int ext_call_instrument(function *fun) {
 	/* Instrument all the things! */
@@ -98,13 +98,12 @@ static unsigned int ext_call_instrument(function *fun) {
 	unsigned fcnt_blocks = 0;
 
 	FOR_ALL_BB_FN(bb, fun) {
-		gimple_seq fcall;
-		gimple_seq seq = NULL;
+		gcall *fcall;
 		gimple_stmt_iterator bentry;
 
 		if (!fcnt_blocks++) continue; /* skip block 0 */
 		
-		// TODO: if the predecessor does not have ast least two destinations
+		// TODO: if the predecessor does not have at least two destinations
 		// then skip this block :TODO
 
 		/* Bail on this block if we trip the specified ratio */
@@ -131,11 +130,10 @@ static unsigned int ext_call_instrument(function *fun) {
 		DECL_ARTIFICIAL(fndecl) = 1; /* Injected by compiler */
 
 		fcall = gimple_build_call(fndecl, 1, cur_loc);  /* generate the function _call_ to above built reference, with *1* parameter -> the random const for the location */
-		gimple_seq_add_stmt(&seq, fcall); /* and insert into a sequence */
 
 		/* Done - grab the entry to the block and insert sequence */
-		bentry = gsi_start_bb(bb);
-		gsi_insert_seq_before(&bentry, seq, GSI_SAME_STMT);
+		bentry = gsi_after_labels(bb);
+		gsi_insert_before(&bentry, fcall, GSI_NEW_STMT);
 
 		finst_blocks++;
 	}
@@ -321,8 +319,8 @@ static struct opt_pass *make_afl_pass(bool ext_call, gcc::context *ctxt) {
 int plugin_is_GPL_compatible = 1;
 
 static struct plugin_info afl_plugin_info = {
-  .version = "20181200",
-  .help    = "AFL gcc plugin\n",
+  .version = "20191010",
+  .help    = "AFL++ gcc plugin\n",
 };
 
 int plugin_init(struct plugin_name_args *plugin_info,
@@ -350,7 +348,7 @@ int plugin_init(struct plugin_name_args *plugin_info,
 
 	/* Show a banner */
 	if (isatty(2) && !getenv("AFL_QUIET")) {
-		SAYF(G_(cCYA "afl-gcc-pass" cRST " initial version 1.94 by <aseipp@pobox.com>, updated to " cBRI VERSION cRST " by <thorsten.schulz@uni-rostock.de>\n"));
+		SAYF(G_(cCYA "afl-gcc-pass " cBRI VERSION cRST " initially by <aseipp@pobox.com>, maintainer: hexcoder-\n"));
 	} else
 		be_quiet = 1;
 
