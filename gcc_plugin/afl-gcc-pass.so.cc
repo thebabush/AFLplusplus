@@ -98,7 +98,8 @@ static unsigned int ext_call_instrument(function *fun) {
 	unsigned fcnt_blocks = 0;
 
 	FOR_ALL_BB_FN(bb, fun) {
-		gcall *fcall;
+		gimple_seq fcall;
+		gimple_seq seq = NULL;
 		gimple_stmt_iterator bentry;
 
 		if (!fcnt_blocks++) continue; /* skip block 0 */
@@ -130,10 +131,11 @@ static unsigned int ext_call_instrument(function *fun) {
 		DECL_ARTIFICIAL(fndecl) = 1; /* Injected by compiler */
 
 		fcall = gimple_build_call(fndecl, 1, cur_loc);  /* generate the function _call_ to above built reference, with *1* parameter -> the random const for the location */
+		gimple_seq_add_stmt(&seq, fcall); /* and insert into a sequence */
 
 		/* Done - grab the entry to the block and insert sequence */
 		bentry = gsi_after_labels(bb);
-		gsi_insert_before(&bentry, fcall, GSI_NEW_STMT);
+		gsi_insert_seq_before(&bentry, seq, GSI_SAME_STMT);
 
 		finst_blocks++;
 	}
