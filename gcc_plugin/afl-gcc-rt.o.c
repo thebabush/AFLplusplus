@@ -49,9 +49,9 @@ u32 __afl_prev_loc;
 static u8 is_persistent;
 
 /* Trace a basic block with some ID */
-void __afl_trace(u16 x) {
-  u16 l = __afl_prev_loc;
-  u16 n = l ^ x;
+void __afl_trace(u32 x) {
+  u32 l = __afl_prev_loc;
+  u32 n = l ^ x;
   *(__afl_area_ptr+n) += 1;
   __afl_prev_loc = (x >> 1);
   return;
