@@ -76,6 +76,7 @@
 #include <gimple-expr.h>
 #include <gimple.h>
 #include <gimple-iterator.h>
+#include <gimple-ssa.h>
 #include <version.h>
 #include <toplev.h>
 #include <intl.h>
@@ -89,7 +90,7 @@
 
 static int be_quiet = 0;
 static unsigned int inst_ratio = 100;
-static bool inst_ext = true;
+static bool inst_ext = false;
 
 static unsigned int ext_call_instrument(function *fun) {
 	/* Instrument all the things! */
@@ -112,17 +113,17 @@ static unsigned int ext_call_instrument(function *fun) {
 
 		/* Make up cur_loc */
 		unsigned int rand_loc = R(MAP_SIZE);
-		tree cur_loc = build_int_cst(uint64_type_node, rand_loc);
+		tree cur_loc = build_int_cst(uint32_type_node, rand_loc);
 
 		/* Update bitmap via external call */
 		/* to quote:
 		 * /+ Trace a basic block with some ID +/
-		 * void __afl_trace(u16 x);
+		 * void __afl_trace(u32 x);
 		 */
 
 		tree fntype = build_function_type_list(
 			void_type_node,   /* return */
-			uint16_type_node, /* args */
+			uint32_type_node, /* args */
 			NULL_TREE);       /* done */
 		tree fndecl = build_fn_decl("__afl_trace", fntype);
 		TREE_STATIC(fndecl)     = 1; /* Defined elsewhere */
@@ -160,7 +161,7 @@ static unsigned int ext_call_instrument(function *fun) {
 }
 
 static unsigned int inline_instrument(function *fun) {
-#ifdef BUILD_INLINE_INST   /* ifdef inline away, so I don't have to refactor it */
+
 	/* Instrument all the things! */
 	basic_block bb;
 	unsigned finst_blocks = 0;
@@ -168,24 +169,25 @@ static unsigned int inline_instrument(function *fun) {
 
 	/* Set up global type declarations */
 	tree map_type = build_pointer_type(unsigned_char_type_node);
-	tree map_ptr_g = build_decl(UNKNOWN_LOCATION, VAR_DECL, get_identifier_with_length("__afl_area_ptr",14), map_type);
-	TREE_USED(map_ptr_g) = 1;
-	TREE_STATIC(map_ptr_g) = 1; /* Defined elsewhere */
-	DECL_EXTERNAL(map_ptr_g) = 1; /* External linkage */
+	tree map_ptr_g = build_decl(UNKNOWN_LOCATION, VAR_DECL,
+	  get_identifier_with_length("__afl_area_ptr", 14), map_type);
+	TREE_USED(map_ptr_g)       = 1;
+	TREE_STATIC(map_ptr_g)     = 1; /* Defined elsewhere */
+	DECL_EXTERNAL(map_ptr_g)   = 1; /* External linkage */
 	DECL_PRESERVE_P(map_ptr_g) = 1;
-	DECL_ARTIFICIAL(map_ptr_g) = 1;
+	DECL_ARTIFICIAL(map_ptr_g) = 1; /* Injected by compiler */
 	rest_of_decl_compilation(map_ptr_g, 1, 0);
 
-	tree prev_loc_g = build_decl(UNKNOWN_LOCATION, VAR_DECL, get_identifier_with_length("__afl_prev_loc",14), uint16_type_node);
-	TREE_USED(prev_loc_g) = 1;
-	TREE_STATIC(prev_loc_g) = 1; /* Defined elsewhere */
-	DECL_EXTERNAL(prev_loc_g) = 1; /* External linkage */
+	tree prev_loc_g = build_decl(UNKNOWN_LOCATION, VAR_DECL,
+	  get_identifier_with_length("__afl_prev_loc", 14), uint32_type_node);
+	TREE_USED(prev_loc_g)       = 1;
+	TREE_STATIC(prev_loc_g)     = 1; /* Defined elsewhere */
+	DECL_EXTERNAL(prev_loc_g)   = 1; /* External linkage */
 	DECL_PRESERVE_P(prev_loc_g) = 1;
-	DECL_ARTIFICIAL(prev_loc_g) = 1;
+	DECL_ARTIFICIAL(prev_loc_g) = 1; /* Injected by compiler */
 	rest_of_decl_compilation(prev_loc_g, 1, 0);
 
 	FOR_ALL_BB_FN(bb, fun) {
-		gimple *g;
 		gimple_seq seq = NULL;
 		gimple_stmt_iterator bentry;
 
@@ -197,18 +199,19 @@ static unsigned int inline_instrument(function *fun) {
 		/* Make up cur_loc */
 
 		unsigned int rand_loc = R(MAP_SIZE);
-		tree cur_loc = build_int_cst(uint64_type_node, rand_loc);
+		tree cur_loc = build_int_cst(uint32_type_node, rand_loc);
 
 		/* Load prev_loc, xor with cur_loc */
+		tree area_off = create_tmp_var(uint32_type_node, "area_off");
+		gimple_seq g = gimple_build_assign(area_off, BIT_XOR_EXPR, prev_loc_g, cur_loc);
 
-		tree area_off = create_tmp_var(uint64_type_node, "area_off");
-		g = gimple_build_assign(area_off, BIT_XOR_EXPR, prev_loc_g, cur_loc);
 		gimple_seq_add_stmt(&seq, g); // area_off = prev_loc ^ cur_loc
+#if 1
 
 		/* Update bitmap */
 
-//		tree zero = build_int_cst(unsigned_char_type_node, 0);
-		tree one = build_int_cst(unsigned_char_type_node, 1);
+		tree one  = build_int_cst(unsigned_char_type_node, 1);
+		tree zero = build_int_cst(unsigned_char_type_node, 0);
 
 		tree tmp1 = create_tmp_var(map_type, "tmp1");
 		g = gimple_build_assign(tmp1, PLUS_EXPR, map_ptr_g, area_off);
@@ -216,7 +219,6 @@ static unsigned int inline_instrument(function *fun) {
 		SAYF(G_("%d,"), fcnt_blocks);
 
 		tree tmp2 = create_tmp_var(unsigned_char_type_node, "tmp2");
-		//tree tmp1_ptr = build_simple_mem_ref_loc(UNKNOWN_LOCATION, tmp1);
 		g = gimple_build_assign(tmp2, INDIRECT_REF, tmp1);
 		gimple_seq_add_stmt(&seq, g); // tmp2 = *tmp1
 
@@ -226,29 +228,28 @@ static unsigned int inline_instrument(function *fun) {
 
 		// TODO: neverZero: here we have to check if tmp3 == 0
 		//                  and add 1 if so
-
-//		tree tmp4 = create_tmp_var(map_type, "tmp4");
-//		g = gimple_build_assign(tmp4, PLUS_EXPR, map_ptr_g, area_off);
-//		gimple_seq_add_stmt(&seq, g); // tmp4 = __afl_area_ptr + area_off
-
-//		tree deref2 = build2(MEM_REF, map_type, tmp4, zero);
-		tree deref2 = build4(ARRAY_REF, map_type, map_ptr_g, area_off, NULL, NULL);
-		g = gimple_build_assign(deref2, MODIFY_EXPR, tmp3);
-		gimple_seq_add_stmt(&seq, g); // *tmp4 = tmp3
+#if 0
+		tree tmp4 = create_tmp_var(map_type, "tmp4");
+		g = gimple_build_assign(tmp4, PLUS_EXPR, map_ptr_g, area_off);
+		gimple_seq_add_stmt(&seq, g); // tmp4 = __afl_area_ptr + area_off
+#endif
+		tree deref2 = build1(INDIRECT_REF, map_type, tmp1);
+		//tree deref2 = build2(MEM_REF, map_type, tmp4, zero);
+		g = gimple_build_assign(deref2, INDIRECT_REF, tmp3);
+//		gimple_seq_add_stmt(&seq, g); // *tmp4 = tmp3
 		SAYF(G_("+%d,"), fcnt_blocks);
 
 		/* Set prev_loc to cur_loc >> 1 */
 
 		tree shifted_loc = build_int_cst(TREE_TYPE(prev_loc_g), rand_loc >> 1);
-		g = gimple_build_assign(prev_loc_g, MODIFY_EXPR, shifted_loc);
-		gimple_seq_add_stmt(&seq, g); // __afl_pred_loc = cur_loc >> 1
+//		g = gimple_build_assign(prev_loc_g, DECL_EXPR, shifted_loc);
+//		gimple_seq_add_stmt(&seq, g); // __afl_prev_loc = cur_loc >> 1
 
 		/* Done - grab the entry to the block and insert sequence */
-
-		bentry = gsi_start_bb(bb);
+#endif
+		bentry = gsi_after_labels(bb);
 		gsi_insert_seq_before(&bentry, seq, GSI_SAME_STMT);
 
-		//inst_blocks++;
 		finst_blocks++;
 	}
 
@@ -267,7 +268,7 @@ static unsigned int inline_instrument(function *fun) {
 					function_name(fun));
 	}
 
-#endif
+
 	return 0;
 }
 
