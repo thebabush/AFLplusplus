@@ -65,6 +65,10 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include <list>
+#include <string>
+#include <fstream>
+
 #include <gcc-plugin.h>
 #include <plugin-version.h>
 #include <diagnostic.h>
@@ -90,7 +94,8 @@
 
 static int be_quiet = 0;
 static unsigned int inst_ratio = 100;
-static bool inst_ext = false;
+static bool inst_ext = true;
+static std::list<std::string> myWhitelist;
 
 static unsigned int ext_call_instrument(function *fun) {
 	/* Instrument all the things! */
@@ -98,15 +103,46 @@ static unsigned int ext_call_instrument(function *fun) {
 	unsigned finst_blocks = 0;
 	unsigned fcnt_blocks = 0;
 
-	FOR_ALL_BB_FN(bb, fun) {
+	tree fntype = build_function_type_list(
+		void_type_node,   /* return */
+		uint32_type_node, /* args */
+		NULL_TREE);       /* done */
+	tree fndecl = build_fn_decl("__afl_trace", fntype);
+	TREE_STATIC(fndecl)     = 1; /* Defined elsewhere */
+	TREE_PUBLIC(fndecl)     = 1; /* Public */
+	DECL_EXTERNAL(fndecl)   = 1; /* External linkage */
+	DECL_ARTIFICIAL(fndecl) = 1; /* Injected by compiler */
+
+	FOR_EACH_BB_FN(bb, fun) {
 		gimple_seq fcall;
 		gimple_seq seq = NULL;
 		gimple_stmt_iterator bentry;
 
-		if (!fcnt_blocks++) continue; /* skip block 0 */
-		
-		// TODO: if the predecessor does not have at least two destinations
-		// then skip this block :TODO
+		// only instrument if this basic block is the destination of a previous
+		// basic block that has multiple successors
+		// this gets rid of ~5-10% of instrumentations that are unnecessary
+		// result: a little more speed and less map pollution
+
+		int more_than_one = -1;
+		edge ep;
+		edge_iterator eip;
+		FOR_EACH_EDGE (ep, eip, bb->preds) {
+			int count = 0;
+			if (more_than_one == -1)
+				more_than_one = 0;
+
+			basic_block Pred = ep->src;
+			edge es;
+			edge_iterator eis;
+			FOR_EACH_EDGE (es, eis, Pred->succs) {
+				basic_block Succ = es->dest;
+				if (Succ != NULL) count++;
+			}
+			if (count > 1)
+				more_than_one = 1;
+		}
+		if (more_than_one != 1)
+			continue;
 
 		/* Bail on this block if we trip the specified ratio */
 		if (R(100) >= inst_ratio) continue;
@@ -120,16 +156,6 @@ static unsigned int ext_call_instrument(function *fun) {
 		 * /+ Trace a basic block with some ID +/
 		 * void __afl_trace(u32 x);
 		 */
-
-		tree fntype = build_function_type_list(
-			void_type_node,   /* return */
-			uint32_type_node, /* args */
-			NULL_TREE);       /* done */
-		tree fndecl = build_fn_decl("__afl_trace", fntype);
-		TREE_STATIC(fndecl)     = 1; /* Defined elsewhere */
-		TREE_PUBLIC(fndecl)     = 1; /* Public */
-		DECL_EXTERNAL(fndecl)   = 1; /* External linkage */
-		DECL_ARTIFICIAL(fndecl) = 1; /* Injected by compiler */
 
 		fcall = gimple_build_call(fndecl, 1, cur_loc);  /* generate the function _call_ to above built reference, with *1* parameter -> the random const for the location */
 		gimple_seq_add_stmt(&seq, fcall); /* and insert into a sequence */
@@ -187,11 +213,35 @@ static unsigned int inline_instrument(function *fun) {
 	DECL_ARTIFICIAL(prev_loc_g) = 1; /* Injected by compiler */
 	rest_of_decl_compilation(prev_loc_g, 1, 0);
 
-	FOR_ALL_BB_FN(bb, fun) {
+	FOR_EACH_BB_FN(bb, fun) {
 		gimple_seq seq = NULL;
 		gimple_stmt_iterator bentry;
 
-		if (!fcnt_blocks++) continue; /* skip block 0 */
+		// only instrument if this basic block is the destination of a previous
+		// basic block that has multiple successors
+		// this gets rid of ~5-10% of instrumentations that are unnecessary
+		// result: a little more speed and less map pollution
+
+		int more_than_one = -1;
+		edge ep;
+		edge_iterator eip;
+		FOR_EACH_EDGE (ep, eip, bb->preds) {
+			int count = 0;
+			if (more_than_one == -1)
+				more_than_one = 0;
+
+			basic_block Pred = ep->src;
+			edge es;
+			edge_iterator eis;
+			FOR_EACH_EDGE (es, eis, Pred->succs) {
+				basic_block Succ = es->dest;
+				if (Succ != NULL) count++;
+			}
+			if (count > 1)
+				more_than_one = 1;
+		}
+		if (more_than_one != 1)
+			continue;
 
 		/* Bail on this block if we trip the specified ratio */
 		if (R(100) >= inst_ratio) continue;
@@ -202,51 +252,64 @@ static unsigned int inline_instrument(function *fun) {
 		tree cur_loc = build_int_cst(uint32_type_node, rand_loc);
 
 		/* Load prev_loc, xor with cur_loc */
-		tree area_off = create_tmp_var(uint32_type_node, "area_off");
-		gimple_seq g = gimple_build_assign(area_off, BIT_XOR_EXPR, prev_loc_g, cur_loc);
+		// gimple_assign <var_decl, prev_loc.0_1, prev_loc, NULL, NULL>
+		tree prev_loc = create_tmp_var_raw(uint32_type_node, "prev_loc");
+		gassign *g = gimple_build_assign(prev_loc, VAR_DECL, prev_loc_g);
+		gimple_seq_add_stmt(&seq, g); // load prev_loc
 
+		// gimple_assign <bit_xor_expr, _2, prev_loc.0_1, 47231, NULL>
+		tree area_off = create_tmp_var_raw(uint32_type_node, "area_off");
+		g = gimple_build_assign(area_off, BIT_XOR_EXPR, prev_loc, cur_loc);
 		gimple_seq_add_stmt(&seq, g); // area_off = prev_loc ^ cur_loc
-#if 1
-
+#if 0
 		/* Update bitmap */
 
 		tree one  = build_int_cst(unsigned_char_type_node, 1);
 		tree zero = build_int_cst(unsigned_char_type_node, 0);
 
-		tree tmp1 = create_tmp_var(map_type, "tmp1");
-		g = gimple_build_assign(tmp1, PLUS_EXPR, map_ptr_g, area_off);
-		gimple_seq_add_stmt(&seq, g); // tmp1 = __afl_area_ptr + area_off
-		SAYF(G_("%d,"), fcnt_blocks);
+		// gimple_assign <addr_expr, p_6, &map[_2], NULL, NULL>
+		tree map_ptr = create_tmp_var_raw(map_type, "map_ptr");
+		g = gimple_build_assign(map_ptr, ADDR_EXPR, map_ptr_g, area_off);
+		gimple_seq_add_stmt(&seq, g); // map_ptr = __afl_area_ptr + area_off
 
-		tree tmp2 = create_tmp_var(unsigned_char_type_node, "tmp2");
-		g = gimple_build_assign(tmp2, INDIRECT_REF, tmp1);
-		gimple_seq_add_stmt(&seq, g); // tmp2 = *tmp1
+		// gimple_assign <mem_ref, _3, *p_6, NULL, NULL>
+		tree tmp1 = create_tmp_var_raw(unsigned_char_type_node, "tmp1");
+		g = gimple_build_assign(tmp1, MEM_REF, map_ptr);
+		gimple_seq_add_stmt(&seq, g); // tmp1 = *map_ptr
 
-		tree tmp3 = create_tmp_var(unsigned_char_type_node, "tmp3");
+		// gimple_assign <plus_expr, _4, _3, 1, NULL>
+		tree tmp2 = create_tmp_var_raw(unsigned_char_type_node, "tmp2");
+		g = gimple_build_assign(tmp2, PLUS_EXPR, tmp1, one);
+		gimple_seq_add_stmt(&seq, g); // tmp2 = tmp1 + 1
+
+		// gimple_assign <ssa_name, *p_6, _4, NULL, NULL>
+		// gimple_assign <integer_cst, prev_loc, 23615, NULL, NULL>
+		tree tmp3 = create_tmp_var_raw(unsigned_char_type_node, "tmp3");
 		g = gimple_build_assign(tmp3, PLUS_EXPR, tmp2, one);
 		gimple_seq_add_stmt(&seq, g); // tmp3 = tmp2 + 1
 
 		// TODO: neverZero: here we have to check if tmp3 == 0
 		//                  and add 1 if so
-#if 0
+
 		tree tmp4 = create_tmp_var(map_type, "tmp4");
 		g = gimple_build_assign(tmp4, PLUS_EXPR, map_ptr_g, area_off);
 		gimple_seq_add_stmt(&seq, g); // tmp4 = __afl_area_ptr + area_off
-#endif
+
 		tree deref2 = build1(INDIRECT_REF, map_type, tmp1);
 		//tree deref2 = build2(MEM_REF, map_type, tmp4, zero);
 		g = gimple_build_assign(deref2, INDIRECT_REF, tmp3);
 //		gimple_seq_add_stmt(&seq, g); // *tmp4 = tmp3
-		SAYF(G_("+%d,"), fcnt_blocks);
-
+#endif
 		/* Set prev_loc to cur_loc >> 1 */
 
 		tree shifted_loc = build_int_cst(TREE_TYPE(prev_loc_g), rand_loc >> 1);
-//		g = gimple_build_assign(prev_loc_g, DECL_EXPR, shifted_loc);
+		g = gimple_build_assign(prev_loc, shifted_loc);
+		gimple_seq_add_stmt(&seq, g); // __afl_prev_loc = cur_loc >> 1
+//		g = gimple_build_assign(prev_loc_g, VAR_DECL, prev_loc);
 //		gimple_seq_add_stmt(&seq, g); // __afl_prev_loc = cur_loc >> 1
 
 		/* Done - grab the entry to the block and insert sequence */
-#endif
+end_of_seq:
 		bentry = gsi_after_labels(bb);
 		gsi_insert_seq_before(&bentry, seq, GSI_SAME_STMT);
 
@@ -305,7 +368,44 @@ public:
 	afl_pass(bool ext_call, gcc::context *g) : gimple_opt_pass(afl_pass_data, g), do_ext_call(ext_call) {}
 
 	virtual unsigned int execute(function *fun) {
-		// TODO: implement whitelist feature here :TODO
+
+		if (!myWhitelist.empty()) {
+			bool instrumentBlock = false;
+
+			/* EXPR_FILENAME
+			This macro returns the name of the file in which the entity was declared, as
+			a char*. For an entity declared implicitly by the compiler (like __builtin_
+			memcpy), this will be the string "<internal>".
+			*/
+			const char *fname = EXPR_FILENAME(fun->decl);
+
+			if (0 != strncmp("<internal>", fname, 10)
+			    && 0 != strncmp("<built-in>", fname, 10))
+			{
+				std::string instFilename(fname);
+
+				/* Continue only if we know where we actually are */
+				if (!instFilename.empty()) {
+					for (std::list<std::string>::iterator it = myWhitelist.begin(); it != myWhitelist.end(); ++it) {
+						/* We don't check for filename equality here because
+						 * filenames might actually be full paths. Instead we
+						 * check that the actual filename ends in the filename
+						 * specified in the list. */
+						if (instFilename.length() >= it->length()) {
+							if (instFilename.compare(instFilename.length() - it->length(), it->length(), *it) == 0) {
+								instrumentBlock = true;
+								break;
+							}
+						}
+					}
+				}
+			}
+
+			/* Either we couldn't figure out our location or the location is
+			 * not whitelisted, so we skip instrumentation. */
+			if (!instrumentBlock) return 0;;
+		}
+
 		return do_ext_call ? ext_call_instrument(fun) : inline_instrument(fun);
 	}
 }; /* class afl_pass */
@@ -322,7 +422,7 @@ static struct opt_pass *make_afl_pass(bool ext_call, gcc::context *ctxt) {
 int plugin_is_GPL_compatible = 1;
 
 static struct plugin_info afl_plugin_info = {
-  .version = "20191010",
+  .version = "20191015",
   .help    = "AFL++ gcc plugin\n",
 };
 
@@ -369,6 +469,20 @@ int plugin_init(struct plugin_name_args *plugin_info,
 					getenv("AFL_HARDEN") ? G_("hardened") : G_("non-hardened"));
 		}
 	}
+
+        char* instWhiteListFilename = getenv("AFL_GCC_WHITELIST");
+        if (instWhiteListFilename) {
+          std::string line;
+          std::ifstream fileStream;
+          fileStream.open(instWhiteListFilename);
+          if (!fileStream)
+            fatal_error(0, "Unable to open AFL_GCC_WHITELIST");
+          getline(fileStream, line);
+          while (fileStream) {
+            myWhitelist.push_back(line);
+            getline(fileStream, line);
+          }
+        }
 
 	/* Go go gadget */
 	register_callback(plugin_info->base_name, PLUGIN_INFO, NULL, &afl_plugin_info);
