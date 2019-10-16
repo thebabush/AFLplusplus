@@ -4,7 +4,8 @@
 #
 # Written by Austin Seipp <aseipp@pobox.com> and
 #            Laszlo Szekeres <lszekeres@google.com> and
-#            Michal Zalewski <lcamtuf@google.com>
+#            Michal Zalewski <lcamtuf@google.com> and
+#            Heiko Eißfeldt  <heiko@hexco.de>
 #
 # GCC integration design is based on the LLVM design, which comes
 # from Laszlo Szekeres.
@@ -41,6 +42,8 @@ all: test_deps $(PROGS) test_build all_done
 test_deps:
 	@echo "[*] Checking for working '$(CC)'..."
 	@which $(CC) >/dev/null 2>&1 || ( echo "[-] Oops, can't find '$(CC)'. Make sure that it's in your \$$PATH (or set \$$CC and \$$CXX)."; exit 1 )
+	@echo "[*] Checking for gcc development header files..."
+	@test -d `$(CC) -print-file-name=plugin`/include || ( echo "[-] Oops, can't find gcc header files. Be sure to install them before."; exit 1 )
 	@echo "[*] Checking for '../afl-showmap'..."
 	@test -f ../afl-showmap || ( echo "[-] Oops, can't find '../afl-showmap'. Be sure to compile AFL first."; exit 1 )
 	@echo "[+] All set and ready to build."
