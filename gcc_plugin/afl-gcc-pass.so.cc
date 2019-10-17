@@ -94,7 +94,7 @@
 
 static int be_quiet = 0;
 static unsigned int inst_ratio = 100;
-static bool inst_ext = true;
+static bool inst_ext = false;
 static std::list<std::string> myWhitelist;
 
 static unsigned int ext_call_instrument(function *fun) {
@@ -117,6 +117,7 @@ static unsigned int ext_call_instrument(function *fun) {
 		gimple_seq fcall;
 		gimple_seq seq = NULL;
 		gimple_stmt_iterator bentry;
+		++fcnt_blocks;
 
 		// only instrument if this basic block is the destination of a previous
 		// basic block that has multiple successors
@@ -164,9 +165,8 @@ static unsigned int ext_call_instrument(function *fun) {
 		bentry = gsi_after_labels(bb);
 		gsi_insert_seq_before(&bentry, seq, GSI_SAME_STMT);
 
-		finst_blocks++;
+		++finst_blocks;
 	}
-	fcnt_blocks--; /* discard the first in the count */
 
 	/* Say something nice. */
 	if (!be_quiet) {
@@ -216,6 +216,7 @@ static unsigned int inline_instrument(function *fun) {
 	FOR_EACH_BB_FN(bb, fun) {
 		gimple_seq seq = NULL;
 		gimple_stmt_iterator bentry;
+		++fcnt_blocks;
 
 		// only instrument if this basic block is the destination of a previous
 		// basic block that has multiple successors
@@ -256,64 +257,68 @@ static unsigned int inline_instrument(function *fun) {
 		tree prev_loc = create_tmp_var_raw(uint32_type_node, "prev_loc");
 		gassign *g = gimple_build_assign(prev_loc, VAR_DECL, prev_loc_g);
 		gimple_seq_add_stmt(&seq, g); // load prev_loc
+		update_stmt(g);
 
 		// gimple_assign <bit_xor_expr, _2, prev_loc.0_1, 47231, NULL>
 		tree area_off = create_tmp_var_raw(uint32_type_node, "area_off");
 		g = gimple_build_assign(area_off, BIT_XOR_EXPR, prev_loc, cur_loc);
 		gimple_seq_add_stmt(&seq, g); // area_off = prev_loc ^ cur_loc
-#if 0
+		update_stmt(g);
+
 		/* Update bitmap */
 
 		tree one  = build_int_cst(unsigned_char_type_node, 1);
 		tree zero = build_int_cst(unsigned_char_type_node, 0);
 
 		// gimple_assign <addr_expr, p_6, &map[_2], NULL, NULL>
-		tree map_ptr = create_tmp_var_raw(map_type, "map_ptr");
-		g = gimple_build_assign(map_ptr, ADDR_EXPR, map_ptr_g, area_off);
-		gimple_seq_add_stmt(&seq, g); // map_ptr = __afl_area_ptr + area_off
+		tree map_ptr = create_tmp_var(map_type, "map_ptr");
+		g = gimple_build_assign(map_ptr, map_ptr_g);
+		gimple_seq_add_stmt(&seq, g); // map_ptr = __afl_area_ptr
+		update_stmt(g);
+
+		tree map_ptr2 = create_tmp_var(map_type, "map_ptr");
+		g = gimple_build_assign(map_ptr2, PLUS_EXPR, map_ptr, area_off);
+		gimple_seq_add_stmt(&seq, g); // map_ptr2 = __afl_area_ptr + area_off
+		update_stmt(g);
 
 		// gimple_assign <mem_ref, _3, *p_6, NULL, NULL>
 		tree tmp1 = create_tmp_var_raw(unsigned_char_type_node, "tmp1");
 		g = gimple_build_assign(tmp1, MEM_REF, map_ptr);
 		gimple_seq_add_stmt(&seq, g); // tmp1 = *map_ptr
+		update_stmt(g);
 
 		// gimple_assign <plus_expr, _4, _3, 1, NULL>
 		tree tmp2 = create_tmp_var_raw(unsigned_char_type_node, "tmp2");
 		g = gimple_build_assign(tmp2, PLUS_EXPR, tmp1, one);
 		gimple_seq_add_stmt(&seq, g); // tmp2 = tmp1 + 1
-
-		// gimple_assign <ssa_name, *p_6, _4, NULL, NULL>
-		// gimple_assign <integer_cst, prev_loc, 23615, NULL, NULL>
-		tree tmp3 = create_tmp_var_raw(unsigned_char_type_node, "tmp3");
-		g = gimple_build_assign(tmp3, PLUS_EXPR, tmp2, one);
-		gimple_seq_add_stmt(&seq, g); // tmp3 = tmp2 + 1
+		update_stmt(g);
 
 		// TODO: neverZero: here we have to check if tmp3 == 0
 		//                  and add 1 if so
 
-		tree tmp4 = create_tmp_var(map_type, "tmp4");
-		g = gimple_build_assign(tmp4, PLUS_EXPR, map_ptr_g, area_off);
-		gimple_seq_add_stmt(&seq, g); // tmp4 = __afl_area_ptr + area_off
+		// gimple_assign <ssa_name, *p_6, _4, NULL, NULL>
+		tree tmp3 = create_tmp_var_raw(unsigned_char_type_node, "tmp3");
+		g = gimple_build_assign(map_ptr_g, MEM_REF, tmp2);
+		gimple_seq_add_stmt(&seq, g); // *map_ptr = tmp2
+		update_stmt(g);
 
-		tree deref2 = build1(INDIRECT_REF, map_type, tmp1);
-		//tree deref2 = build2(MEM_REF, map_type, tmp4, zero);
-		g = gimple_build_assign(deref2, INDIRECT_REF, tmp3);
-//		gimple_seq_add_stmt(&seq, g); // *tmp4 = tmp3
-#endif
 		/* Set prev_loc to cur_loc >> 1 */
 
+		// gimple_assign <integer_cst, prev_loc, 23615, NULL, NULL>
 		tree shifted_loc = build_int_cst(TREE_TYPE(prev_loc_g), rand_loc >> 1);
 		g = gimple_build_assign(prev_loc, shifted_loc);
 		gimple_seq_add_stmt(&seq, g); // __afl_prev_loc = cur_loc >> 1
-//		g = gimple_build_assign(prev_loc_g, VAR_DECL, prev_loc);
-//		gimple_seq_add_stmt(&seq, g); // __afl_prev_loc = cur_loc >> 1
+		update_stmt(g);
+		g = gimple_build_assign(prev_loc_g, prev_loc);
+		gimple_seq_add_stmt(&seq, g); // __afl_prev_loc = cur_loc >> 1
+		update_stmt(g);
 
 		/* Done - grab the entry to the block and insert sequence */
-end_of_seq:
-		bentry = gsi_after_labels(bb);
-		gsi_insert_seq_before(&bentry, seq, GSI_SAME_STMT);
 
-		finst_blocks++;
+		bentry = gsi_after_labels(bb);
+		gsi_insert_seq_before(&bentry, seq, GSI_NEW_STMT);
+
+		++finst_blocks;
 	}
 
 	/* Say something nice. */
