@@ -482,7 +482,8 @@ int plugin_init(struct plugin_name_args *plugin_info,
             myWhitelist.push_back(line);
             getline(fileStream, line);
           }
-        }
+        } else if (!be_quiet && getenv("AFL_LLVM_WHITELIST"))
+          SAYF(cYEL "[-] " cRST "AFL_LLVM_WHITELIST environment variable detected - did you mean AFL_GCC_WHITELIST?\n");
 
 	/* Go go gadget */
 	register_callback(plugin_info->base_name, PLUGIN_INFO, NULL, &afl_plugin_info);

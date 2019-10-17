@@ -24,7 +24,7 @@ int main(int argc, char** argv) {
 
   if (read(0, buf, sizeof(buf)) < 1) {
     printf("Hum?\n");
-    exit(1);
+    return 0;
   }
 
   if (buf[0] == '0')
@@ -34,6 +34,6 @@ int main(int argc, char** argv) {
   else
     printf("Neither one or zero? How quaint!\n");
 
-  exit(0);
+  return 0;
 
 }
