@@ -94,7 +94,7 @@
 
 static int be_quiet = 0;
 static unsigned int inst_ratio = 100;
-static bool inst_ext = false;
+static bool inst_ext = true;
 static std::list<std::string> myWhitelist;
 
 static unsigned int ext_call_instrument(function *fun) {
@@ -268,23 +268,30 @@ static unsigned int inline_instrument(function *fun) {
 		/* Update bitmap */
 
 		tree one  = build_int_cst(unsigned_char_type_node, 1);
-		tree zero = build_int_cst(unsigned_char_type_node, 0);
+//		tree zero = build_int_cst(unsigned_char_type_node, 0);
 
 		// gimple_assign <addr_expr, p_6, &map[_2], NULL, NULL>
 		tree map_ptr = create_tmp_var(map_type, "map_ptr");
+		tree map_ptr2 = create_tmp_var(map_type, "map_ptr2");
+
 		g = gimple_build_assign(map_ptr, map_ptr_g);
 		gimple_seq_add_stmt(&seq, g); // map_ptr = __afl_area_ptr
 		update_stmt(g);
 
-		tree map_ptr2 = create_tmp_var(map_type, "map_ptr");
-		g = gimple_build_assign(map_ptr2, PLUS_EXPR, map_ptr, area_off);
-		gimple_seq_add_stmt(&seq, g); // map_ptr2 = __afl_area_ptr + area_off
+#if 0
+		tree addr = build2(ADDR_EXPR, map_type, map_ptr, area_off);
+		g = gimple_build_assign(map_ptr2, MODIFY_EXPR, addr);
+		gimple_seq_add_stmt(&seq, g); // map_ptr2 = map_ptr + area_off
 		update_stmt(g);
-
+#else
+		g = gimple_build_assign(map_ptr2, PLUS_EXPR, map_ptr, area_off);
+		gimple_seq_add_stmt(&seq, g); // map_ptr2 = map_ptr + area_off
+		update_stmt(g);
+#endif
 		// gimple_assign <mem_ref, _3, *p_6, NULL, NULL>
 		tree tmp1 = create_tmp_var_raw(unsigned_char_type_node, "tmp1");
-		g = gimple_build_assign(tmp1, MEM_REF, map_ptr);
-		gimple_seq_add_stmt(&seq, g); // tmp1 = *map_ptr
+		g = gimple_build_assign(tmp1, MEM_REF, map_ptr2);
+		gimple_seq_add_stmt(&seq, g); // tmp1 = *map_ptr2
 		update_stmt(g);
 
 		// gimple_assign <plus_expr, _4, _3, 1, NULL>
@@ -297,19 +304,20 @@ static unsigned int inline_instrument(function *fun) {
 		//                  and add 1 if so
 
 		// gimple_assign <ssa_name, *p_6, _4, NULL, NULL>
-		tree tmp3 = create_tmp_var_raw(unsigned_char_type_node, "tmp3");
-		g = gimple_build_assign(map_ptr_g, MEM_REF, tmp2);
-		gimple_seq_add_stmt(&seq, g); // *map_ptr = tmp2
+//		tree map_ptr3 = create_tmp_var_raw(map_type, "map_ptr3");
+		g = gimple_build_assign(map_ptr_g, INDIRECT_REF, tmp2);
+		gimple_seq_add_stmt(&seq, g); // *map_ptr3 = tmp2
 		update_stmt(g);
 
 		/* Set prev_loc to cur_loc >> 1 */
 
 		// gimple_assign <integer_cst, prev_loc, 23615, NULL, NULL>
 		tree shifted_loc = build_int_cst(TREE_TYPE(prev_loc_g), rand_loc >> 1);
-		g = gimple_build_assign(prev_loc, shifted_loc);
+		tree prev_loc2 = create_tmp_var_raw(uint32_type_node, "prev_loc2");
+		g = gimple_build_assign(prev_loc2, shifted_loc);
 		gimple_seq_add_stmt(&seq, g); // __afl_prev_loc = cur_loc >> 1
 		update_stmt(g);
-		g = gimple_build_assign(prev_loc_g, prev_loc);
+		g = gimple_build_assign(prev_loc_g, prev_loc2);
 		gimple_seq_add_stmt(&seq, g); // __afl_prev_loc = cur_loc >> 1
 		update_stmt(g);
 
@@ -382,7 +390,7 @@ public:
 			a char*. For an entity declared implicitly by the compiler (like __builtin_
 			memcpy), this will be the string "<internal>".
 			*/
-			const char *fname = EXPR_FILENAME(fun->decl);
+			const char *fname = DECL_SOURCE_FILE(fun->decl);
 
 			if (0 != strncmp("<internal>", fname, 10)
 			    && 0 != strncmp("<built-in>", fname, 10))
