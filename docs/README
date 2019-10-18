@@ -1,21 +1,22 @@
 
 # FIXME BRANCH
 
-This branch is for the gcc_plugin to get working
+This branch is for the gcc_plugin to get it working
 
-It is in ./gcc_plugin/ but has two major deficiencies:
+It is in ./gcc_plugin/ but has major deficiencies:
 
-1. it instruments every instruction.
+1. it instruments every block.
 goal:
-  a) instrument only from the 2nd basic block on
-  b) only instrument a basic block if it's predecessor has 2+ successors
+  a) instrument only from the 2nd basic block on -> reached
+  b) only instrument a basic block if it's predecessor has 2+ successors ->reached
 
-2. the inline instrumention simply doesnt work and faults
-goal: make it work
+2. the inline instrumention simply doesn't work
+currently the instrumentation is done via an inserted call to afl_trace()
+goal: make the inline version work
 
-(there is an external instrumentation, which is calling afl_log() but this
-is not giving performance and hence has the same speed as afl-gcc ... so its
-pointless)
+3. support whitelisting -> reached
+
+4. implement the neverZero counter variants (inline/external call)
 
 => HELP IS APPRECIATED!
 
