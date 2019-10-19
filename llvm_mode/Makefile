@@ -187,4 +187,4 @@ all_done: test_build
 
 clean:
 	rm -f *.o *.so *~ a.out core core.[1-9][0-9]* .test2 test-instr .test-instr0 .test-instr1 
-	rm -f $(PROGS) ../afl-clang-fast++
+	rm -f $(PROGS) ../afl-clang-fast++ ../afl-clang-fast*.8
