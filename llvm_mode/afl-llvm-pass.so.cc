@@ -39,6 +39,8 @@
 #include <list>
 #include <string>
 #include <fstream>
+#include <cstdlib>
+#include <iostream>
 
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/BasicBlock.h"
@@ -48,6 +50,12 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/IR/CFG.h"
+
+struct bb_id {
+  std::string *bb;
+  uint32_t id;
+  struct bb_id *next;
+};
 
 using namespace llvm;
 
@@ -60,6 +68,7 @@ class AFLCoverage : public ModulePass {
   AFLCoverage() : ModulePass(ID) {
 
     char *instWhiteListFilename = getenv("AFL_LLVM_WHITELIST");
+
     if (instWhiteListFilename) {
 
       std::string   line;
@@ -75,8 +84,26 @@ class AFLCoverage : public ModulePass {
       }
 
     }
+    
+    if (getenv("AFL_DEBUG"))
+      debug = 1;
 
   }
+
+static std::string getSimpleNodeLabel(const BasicBlock *BB,
+                                      const Function *) {
+    if (!BB->getName().empty())
+        return BB->getName().str();
+
+    std::string Str;
+    raw_string_ostream OS(Str);
+
+    BB->printAsOperand(OS, false);
+    return OS.str();
+}
+
+
+
 
   bool runOnModule(Module &M) override;
 
@@ -87,10 +114,12 @@ class AFLCoverage : public ModulePass {
 
  protected:
   std::list<std::string> myWhitelist;
+  int debug = 0;
 
 };
 
 }  // namespace
+
 
 char AFLCoverage::ID = 0;
 
@@ -106,7 +135,9 @@ bool AFLCoverage::runOnModule(Module &M) {
 
   char be_quiet = 0;
 
-  if (isatty(2) && !getenv("AFL_QUIET")) {
+  if (debug) fprintf(stderr, "DEBUG: NEW FILE\n");
+
+  if (getenv("AFL_DEBUG") || (isatty(2) && !getenv("AFL_QUIET"))) {
 
     SAYF(cCYA "afl-llvm-pass" VERSION cRST " by <lszekeres@google.com>\n");
 
@@ -127,8 +158,13 @@ bool AFLCoverage::runOnModule(Module &M) {
 
   }
 
-  char *fn = NULL, *lockfile = NULL, *map = NULL;
-  int fd, collisions = 0;
+
+  char *fn = NULL, *lockfile = NULL;
+  unsigned char *map = NULL, *ids = NULL;
+  int fd, collisions = 0, id_cnt;
+  unsigned int id_list[256];
+  bb_id *bb_list = NULL, *bb_cur;
+  
   if ((fn = getenv("AFL_LLVM_NON_COLLIDING_COVERAGE"))) {
     int first = 1, len;
     if ((lockfile = (char*)malloc(strlen(fn) + 5)) == NULL)
@@ -142,17 +178,22 @@ bool AFLCoverage::runOnModule(Module &M) {
       sleep(1);
     }
     close(fd);
-    if ((map = (char*) malloc(MAP_SIZE)) == NULL)
+    if ((map = (unsigned char*) malloc(MAP_SIZE)) == NULL)
+      PFATAL("memory");
+    if ((ids = (unsigned char*) malloc(MAP_SIZE)) == NULL)
       PFATAL("memory");
     if ((fd = open(fn, O_CREAT | O_EXCL | O_RDWR, 0600)) < 0) {
       // the file exists already, so we have to read its contents
       if ((fd = open(fn, O_CREAT | O_RDWR, 0600)) < 0)
         PFATAL("cannot open instrumentation counter file");
-      if ((len = read(fd,map, MAP_SIZE) < MAP_SIZE))
+      if ((len = read(fd, map, MAP_SIZE) < MAP_SIZE))
         PFATAL("cannot read instrumentation map file");
+      //if ((len = read(fd, ids, MAP_SIZE) < MAP_SIZE))
+      //  PFATAL("cannot read instrumentation ids file");
     }
     // we keep fd open
   }
+
 
 #if LLVM_VERSION_MAJOR < 9
   char *neverZero_counters_str = getenv("AFL_LLVM_NOT_ZERO");
@@ -250,25 +291,12 @@ bool AFLCoverage::runOnModule(Module &M) {
 
       if (AFL_R(100) >= inst_ratio) continue;
 
-      /* Make up cur_loc */
-
-      if (fn) { // AFL_LLVM_NON_COLLIDING_COVERAGE
-        
-        // magic happens here :-)
-      
-      
-      } else {
-
-        cur_loc = AFL_R(MAP_SIZE);
-      
-      }
-
-
 /* There is a problem with Ubuntu 18.04 and llvm 6.0 (see issue #63).
    The inline function successors() is not inlined and also not found at runtime
    :-( As I am unable to detect Ubuntu18.04 heree, the next best thing is to
    disable this optional optimization for LLVM 6.0.0 and Linux */
 #if !(LLVM_VERSION_MAJOR == 6 && LLVM_VERSION_MINOR == 0) || !defined __linux__
+      if (!fn) {
       // only instrument if this basic block is the destination of a previous
       // basic block that has multiple successors
       // this gets rid of ~5-10% of instrumentations that are unnecessary
@@ -296,7 +324,191 @@ bool AFLCoverage::runOnModule(Module &M) {
 
       // fprintf(stderr, " == %d\n", more_than_one);
       if (more_than_one != 1) continue;
+      }
 #endif
+
+
+      /* Make up cur_loc */
+
+      if (fn) { // AFL_LLVM_NON_COLLIDING_COVERAGE
+
+        std::string bb_name = getSimpleNodeLabel(&BB, &F);
+        
+        if (debug) std::cerr << "DEBUG: BB name is " << bb_name << std::endl;
+      
+        if (bb_list == NULL) {
+
+          if ((bb_list = (struct bb_id *) malloc(sizeof(struct bb_id))) == NULL)
+            PFATAL("malloc");
+          bb_list->bb = new std::string(bb_name);//strdup(LLVMGetBasicBlockName(&BB));
+          bb_list->id = cur_loc = 1;
+          bb_list->next = NULL;
+          ids[cur_loc]++;
+
+        } else {
+        
+          int already_exists = 0;
+          
+          cur_loc = 0;
+          memset((char*)id_list, 0, sizeof(id_list));
+          id_cnt = 0;
+          
+          // first we need a list of cur_loc of all direct predecessors of this bb
+          for (BasicBlock *Pred : predecessors(&BB)) {
+
+            assert(Pred != NULL);
+            bb_cur = bb_list;
+            std::string pred_name = getSimpleNodeLabel(Pred, &F);
+            
+            if (debug) std::cerr << "DEBUG: predecessor " << pred_name << std::endl;
+            
+            while (bb_cur != NULL && pred_name.compare(*bb_cur->bb) != 0)
+              bb_cur = bb_cur->next;
+
+            if (bb_cur != NULL) { // predecessor has a cur_loc
+
+              if (debug) std::cerr << "DEBUG: predecessor " << pred_name << " has id " << bb_cur->id << std::endl;
+              id_list[id_cnt++] = bb_cur->id;
+
+            } else {
+            
+              // this can only happen if more_than_one is active and the predecessor was not instrumented - or if there are more than one entry points
+              // as this currently must be a second+ entry point:
+              unsigned int tmp_loc, tmp_coll = 0, tmp_found = 0;
+              while (tmp_found == 0) {
+                tmp_loc = 2;
+              
+                while (tmp_loc < MAP_SIZE && ids[tmp_loc] > tmp_coll)
+                  tmp_loc++;
+                  
+                if (tmp_loc >= MAP_SIZE)
+                  tmp_coll++;
+                else
+                  tmp_found = 1;
+              
+              }
+
+              if ((bb_cur = (struct bb_id *) malloc(sizeof(struct bb_id))) == NULL)
+                PFATAL("malloc");
+              bb_cur->bb = new std::string(pred_name);//strdup(BB.LLVMGetBasicBlockName());
+              bb_cur->id = tmp_loc;
+              bb_cur->next = bb_list;
+              bb_list = bb_cur;
+              std::cerr << "Warning: basic block " << pred_name << " does not have an ID yet, assigning " << tmp_loc << std::endl;
+              ids[tmp_loc]++;
+              id_list[id_cnt++] = bb_cur->id;
+
+            }
+            
+          }
+
+/*
+          if (id_cnt > 1) { // check for duplicates
+            for (int i = 0; i < id_cnt - 1; i++)
+              for (int j = i + 1; j < id_cnt; j++)
+                if (id_list[i] == id_list[j])
+                  PFATAL("duplicate IDs ... :-( %d:%u == %d:%u", i, id_list[i], j, id_list[j]);
+          } else { // no predecessors? maybe we already assigned something!
+*/        if (id_cnt == 0) {
+            bb_cur = bb_list;
+            int found_tmp = 0;
+            while (bb_cur != NULL && found_tmp == 0) {
+              if (bb_name.compare(*bb_cur->bb) == 0)
+                found_tmp = 1;
+              else
+                bb_cur = bb_cur->next;
+            }
+            if (found_tmp) {
+              cur_loc = bb_cur->id;
+              already_exists = 1;
+            }
+          }
+
+          // now we have the cur_loc IDs of all predecessor
+          // next we select a cur_loc for this bb that does not collide
+          
+          int max_collisions = 0, cnt_coll, ids_coll = 0, found = 0;
+
+          if (debug) fprintf(stderr, "DEBUG: we found %d IDs\n", id_cnt);
+          
+          if (cur_loc == 0) while (found == 0) {
+
+            cur_loc = 1;
+
+            while (found == 0 && cur_loc < MAP_SIZE) {
+            
+              while (cur_loc < MAP_SIZE && ids[cur_loc] > ids_coll)
+                cur_loc++;
+
+              if (cur_loc >= MAP_SIZE) {
+              
+                ids_coll++;
+              
+              } else {
+              
+
+//if (cur_loc == 1884) fprintf(stderr, "DEBUG: 1884: ids_coll %d ids[1884]=%u\n", ids_coll, ids[1884]);
+
+                cnt_coll = 0;
+
+                for (int i = 0; i < id_cnt && cnt_coll <= max_collisions; i++)
+                  if ((cur_loc ^ id_list[i]) == 0) // I dont want to use map[0]
+                    cnt_coll = max_collisions + 1;
+                  else
+                    cnt_coll += map[cur_loc ^ id_list[i]];
+              
+                if (cnt_coll <= max_collisions)
+                  found = 1;
+                else
+                  cur_loc++;
+                
+              }
+            
+            } /* while() */
+            
+            if (found == 0)
+              cnt_coll++;
+          
+          } /* while() */
+
+          if (debug) fprintf(stderr, "DEBUG: found cur_loc %u with cnt_coll %d and ids_coll %d\n", cur_loc, cnt_coll, ids_coll);
+          
+          if (already_exists == 0) {
+            // add to the linked list
+            if ((bb_cur = (struct bb_id *) malloc(sizeof(struct bb_id))) == NULL)
+              PFATAL("malloc");
+            bb_cur->bb = new std::string(bb_name);//strdup(BB.LLVMGetBasicBlockName());
+            bb_cur->id = cur_loc;
+            bb_cur->next = bb_list;
+            bb_list = bb_cur;
+            ids[cur_loc]++;
+
+            // if the map size is not big enough we might still get collisions, count them
+            if (cnt_coll > 0) {
+              if (debug)
+                fprintf(stderr, "DEBUG: %d collisions in the map for this :-(\n", cnt_coll);
+              collisions++;
+            }
+          }
+
+          // document all new edges in the map
+          for (int i = 0; i < id_cnt; i++) {
+            map[cur_loc ^ id_list[i]]++;
+            if (debug)
+              fprintf(stderr, "DEBUG: map[%u ^ %u] = %u\n", cur_loc, id_list[i], map[cur_loc ^ id_list[i]]);
+          }
+
+        } /* end of bb_list != NULL */
+
+        if (debug) fprintf(stderr, "DEBUG: selected cur_loc = %u\n", cur_loc);
+        
+      } else {
+
+        cur_loc = AFL_R(MAP_SIZE);
+      
+      }
+
+
       ConstantInt *CurLoc = ConstantInt::get(Int32Ty, cur_loc);
 
       /* Load prev_loc */
@@ -405,9 +617,12 @@ bool AFLCoverage::runOnModule(Module &M) {
   
   if (fn) {  /* AFL_LLVM_NON_COLLIDING_COVERAGE */
     // write map
+    if (debug) fprintf(stderr, "DEBUG: done with source file, finishing ...\n");
     lseek(fd, 0, SEEK_SET);
     if (write(fd, map, MAP_SIZE) < MAP_SIZE)
       PFATAL("write to instrumentation counter file failed");
+    //if (write(fd, ids, MAP_SIZE) < MAP_SIZE)
+    //  PFATAL("write to instrumentation counter file failed");
     close(fd);
     unlink(lockfile);
     free(lockfile);
