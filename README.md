@@ -4,6 +4,15 @@
 
   Github Version: 2.54d
 
+## experimental branch
+
+this is a test branch to test how non-colliding basic block coverage could
+look like.
+it is not a good idea to use this for real fuzzing.
+
+
+## rest of the README
+
 
   Originally developed by Michal "lcamtuf" Zalewski.
 
