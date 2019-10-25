@@ -30,6 +30,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
 
 #include <list>
 #include <string>
@@ -120,6 +125,33 @@ bool AFLCoverage::runOnModule(Module &M) {
         inst_ratio > 100)
       FATAL("Bad value of AFL_INST_RATIO (must be between 1 and 100)");
 
+  }
+
+  char *fn = NULL, *lockfile = NULL, *map = NULL;
+  int fd, collisions = 0;
+  if ((fn = getenv("AFL_LLVM_NON_COLLIDING_COVERAGE"))) {
+    int first = 1, len;
+    if ((lockfile = (char*)malloc(strlen(fn) + 5)) == NULL)
+      PFATAL("memory");
+    snprintf(lockfile, strlen(fn) + 5, "%s.lck", fn); 
+    while ((fd = open(lockfile, O_CREAT | O_EXCL | O_RDWR, 0600)) < 0) {
+      if (first) {
+        SAYF(cYEL "[!] " cBRI "Lock file is present, waiting for other tasks to finish. -j can not be used in AFL_LLVM_NON_COLLIDING_COVERAGE mode.");
+        first = 0;
+      }
+      sleep(1);
+    }
+    close(fd);
+    if ((map = (char*) malloc(MAP_SIZE)) == NULL)
+      PFATAL("memory");
+    if ((fd = open(fn, O_CREAT | O_EXCL | O_RDWR, 0600)) < 0) {
+      // the file exists already, so we have to read its contents
+      if ((fd = open(fn, O_CREAT | O_RDWR, 0600)) < 0)
+        PFATAL("cannot open instrumentation counter file");
+      if ((len = read(fd,map, MAP_SIZE) < MAP_SIZE))
+        PFATAL("cannot read instrumentation map file");
+    }
+    // we keep fd open
   }
 
 #if LLVM_VERSION_MAJOR < 9
@@ -220,8 +252,17 @@ bool AFLCoverage::runOnModule(Module &M) {
 
       /* Make up cur_loc */
 
-      // cur_loc++;
-      cur_loc = AFL_R(MAP_SIZE);
+      if (fn) { // AFL_LLVM_NON_COLLIDING_COVERAGE
+        
+        // magic happens here :-)
+      
+      
+      } else {
+
+        cur_loc = AFL_R(MAP_SIZE);
+      
+      }
+
 
 /* There is a problem with Ubuntu 18.04 and llvm 6.0 (see issue #63).
    The inline function successors() is not inlined and also not found at runtime
@@ -359,6 +400,22 @@ bool AFLCoverage::runOnModule(Module &M) {
 
     }
 
+
+  /* cleanup */
+  
+  if (fn) {  /* AFL_LLVM_NON_COLLIDING_COVERAGE */
+    // write map
+    lseek(fd, 0, SEEK_SET);
+    if (write(fd, map, MAP_SIZE) < MAP_SIZE)
+      PFATAL("write to instrumentation counter file failed");
+    close(fd);
+    unlink(lockfile);
+    free(lockfile);
+    free(map);
+    map = NULL;
+  }
+  
+
   /* Say something nice. */
 
   if (!be_quiet) {
@@ -366,13 +423,27 @@ bool AFLCoverage::runOnModule(Module &M) {
     if (!inst_blocks)
       WARNF("No instrumentation targets found.");
     else
-      OKF("Instrumented %u locations (%s mode, ratio %u%%).", inst_blocks,
-          getenv("AFL_HARDEN")
-              ? "hardened"
-              : ((getenv("AFL_USE_ASAN") || getenv("AFL_USE_MSAN"))
-                     ? "ASAN/MSAN"
-                     : "non-hardened"),
-          inst_ratio);
+      if (fn) {
+
+        OKF("Instrumented %u locations with %d collisions (%s mode, ratio %u%%).",
+            inst_blocks, collisions, getenv("AFL_HARDEN")
+                ? "hardened"
+                : ((getenv("AFL_USE_ASAN") || getenv("AFL_USE_MSAN"))
+                       ? "ASAN/MSAN"
+                       : "non-hardened"),
+            inst_ratio);
+
+      } else {
+
+        OKF("Instrumented %u locations (%s mode, ratio %u%%).", inst_blocks,
+            getenv("AFL_HARDEN")
+                ? "hardened"
+                : ((getenv("AFL_USE_ASAN") || getenv("AFL_USE_MSAN"))
+                       ? "ASAN/MSAN"
+                       : "non-hardened"),
+            inst_ratio);
+
+      }
 
   }
 

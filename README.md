@@ -7,6 +7,14 @@
   includes all necessary/interesting changes from Google's afl 2.56b
 
 
+## experimental branch
+
+  we try here to generate basic block IDs that create non-colliding
+  edge coverage. fingers crossed that it works :-)
+
+
+## rest if original readme
+
   Originally developed by Michal "lcamtuf" Zalewski.
 
   Repository: [https://github.com/vanhauser-thc/AFLplusplus](https://github.com/vanhauser-thc/AFLplusplus)
