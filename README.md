@@ -9,8 +9,8 @@
 
 ## experimental branch
 
-  we try here to generate basic block IDs that create non-colliding
-  edge coverage. fingers crossed that it works :-)
+  in this branch we cound the edge collisions that occur in standard
+  afl compilation.
 
 
 ## rest if original readme
