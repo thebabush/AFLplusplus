@@ -509,11 +509,11 @@ bool AFLCoverage::runOnModule(Module &M) {
                   cnt_coll = 0;
 
                   for (int i = 0; i < id_cnt && cnt_coll <= max_collisions; i++)
-                    if ((cur_loc ^ id_list[i]) ==
+                    if ((cur_loc ^ (id_list[i] >> 1)) ==
                         0)  // I dont want to use map[0]
                       cnt_coll = max_collisions + 1;
                     else
-                      cnt_coll += map[cur_loc ^ id_list[i]];
+                      cnt_coll += map[cur_loc ^ (id_list[i] >> 1)];
 
                   if (cnt_coll <= max_collisions)
                     found = 1;
@@ -563,10 +563,10 @@ bool AFLCoverage::runOnModule(Module &M) {
           // document all new edges in the map
           for (int i = 0; i < id_cnt; i++) {
 
-            map[cur_loc ^ id_list[i]]++;
+            map[cur_loc ^ (id_list[i] >> 1)]++;
             if (debug)
-              fprintf(stderr, "DEBUG: map[%u ^ %u] = %u\n", cur_loc, id_list[i],
-                      map[cur_loc ^ id_list[i]]);
+              fprintf(stderr, "DEBUG: map[%u ^ (%u >> 1)] = %u\n", cur_loc, id_list[i],
+                      map[cur_loc ^ (id_list[i] >> 1)]);
 
           }
 
