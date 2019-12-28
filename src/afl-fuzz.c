@@ -803,8 +803,6 @@ int main(int argc, char** argv) {
   memset(virgin_tmout, 255, MAP_SIZE);
   memset(virgin_crash, 255, MAP_SIZE);
 
-  init_count_class16();
-
   setup_dirs_fds();
 
 #ifdef USE_PYTHON

@@ -121,13 +121,13 @@ struct queue_entry {
       fs_redundant;                     /* Marked as redundant in the fs?   */
 
   u32 bitmap_size,                      /* Number of bits set in bitmap     */
-      fuzz_level,                       /* Number of fuzzing iterations     */
-      exec_cksum;                       /* Checksum of the execution trace  */
+      fuzz_level;                       /* Number of fuzzing iterations     */
 
   u64 exec_us,                          /* Execution time (us)              */
       handicap,                         /* Number of queue cycles behind    */
       n_fuzz,                          /* Number of fuzz, does not overflow */
-      depth;                            /* Path depth                       */
+      depth,                            /* Path depth                       */
+      exec_cksum;                       /* Checksum of the execution trace  */
 
   u8* trace_mini;                       /* Trace bytes, if kept             */
   u32 tc_ref;                           /* Trace bytes ref count            */

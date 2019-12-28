@@ -1,6 +1,24 @@
 # american fuzzy lop plus plus (afl++)
 
-  ![Travis State](https://api.travis-ci.com/vanhauser-thc/AFLplusplus.svg?branch=master)
+  Test branch to try a different approach to perform new path discovery.
+
+  This is a super simple approach which only collects the instruction pointers
+  and adding them all together, resulting in a map size of only 8 bytes ...
+
+  This will not allow for coverage analysis but a fast way to see if a new
+  path was found.
+  the speed increase is roughtly about 20-25%.
+
+  We would then need another, different run (different compiled) to see what
+  that new coverage is.
+
+  Currently working: llvm_mode, afl-showmap, afl-fuzz
+
+  First do "make" which will fail in the end, then "cd llvm_mode ; make ; cd .."
+  and then the original "make" will work.
+
+
+## original readme follows ...
 
   Release Version: 2.59c 
 

@@ -328,7 +328,7 @@ u8 trim_case_python(char** argv, struct queue_entry* q, u8* in_buf) {
 
     sprintf(tmp, "ptrim %s", DI(trim_exec));
 
-    u32 cksum;
+    u64 cksum;
 
     char*  retbuf = NULL;
     size_t retlen = 0;
@@ -345,12 +345,9 @@ u8 trim_case_python(char** argv, struct queue_entry* q, u8* in_buf) {
     fault = run_target(argv, exec_tmout);
     ++trim_execs;
 
-    if (stop_soon || fault == FAULT_ERROR) {
-        free(retbuf);
-        goto abort_trimming;
-    }
+    if (stop_soon || fault == FAULT_ERROR) goto abort_trimming;
 
-    cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
+    cksum = (uint64_t) * (u64*)trace_bits;
 
     if (cksum == q->exec_cksum) {
 
@@ -384,8 +381,6 @@ u8 trim_case_python(char** argv, struct queue_entry* q, u8* in_buf) {
 
     }
 
-    free(retbuf);
-
     /* Since this can be slow, update the screen every now and then. */
 
     if (!(trim_exec++ % stats_update_freq)) show_stats();
@@ -412,7 +407,6 @@ u8 trim_case_python(char** argv, struct queue_entry* q, u8* in_buf) {
     close(fd);
 
     memcpy(trace_bits, clean_trace, MAP_SIZE);
-    update_bitmap_score(q);
 
   }
 

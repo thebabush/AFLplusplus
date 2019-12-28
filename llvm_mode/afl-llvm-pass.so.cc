@@ -94,12 +94,12 @@ bool AFLCoverage::runOnModule(Module &M) {
 
   LLVMContext &C = M.getContext();
 
-  IntegerType *   Int8Ty = IntegerType::getInt8Ty(C);
-  IntegerType *   Int32Ty = IntegerType::getInt32Ty(C);
+  IntegerType *Int8Ty = IntegerType::getInt8Ty(C);
+  IntegerType *Int64Ty = IntegerType::getInt64Ty(C);
+
   struct timeval  tv;
   struct timezone tz;
   u32             rand_seed;
-  unsigned int    cur_loc = 0;
 
   /* Setup random() so we get Actually Random(TM) outputs from AFL_R() */
   gettimeofday(&tv, &tz);
@@ -131,27 +131,12 @@ bool AFLCoverage::runOnModule(Module &M) {
 
   }
 
-#if LLVM_VERSION_MAJOR < 9
-  char *neverZero_counters_str = getenv("AFL_LLVM_NOT_ZERO");
-#endif
-
   /* Get globals for the SHM region and the previous location. Note that
      __afl_prev_loc is thread-local. */
 
   GlobalVariable *AFLMapPtr =
       new GlobalVariable(M, PointerType::get(Int8Ty, 0), false,
                          GlobalValue::ExternalLinkage, 0, "__afl_area_ptr");
-
-#ifdef __ANDROID__
-  GlobalVariable *AFLPrevLoc = new GlobalVariable(
-      M, Int32Ty, false, GlobalValue::ExternalLinkage, 0, "__afl_prev_loc");
-#else
-  GlobalVariable *AFLPrevLoc = new GlobalVariable(
-      M, Int32Ty, false, GlobalValue::ExternalLinkage, 0, "__afl_prev_loc", 0,
-      GlobalVariable::GeneralDynamicTLSModel, 0, false);
-#endif
-  ConstantInt *Zero = ConstantInt::get(Int8Ty, 0);
-  ConstantInt *One = ConstantInt::get(Int8Ty, 1);
 
   /* Instrument all the things! */
 
@@ -231,11 +216,6 @@ bool AFLCoverage::runOnModule(Module &M) {
 
       if (AFL_R(100) >= inst_ratio) continue;
 
-      /* Make up cur_loc */
-
-      // cur_loc++;
-      cur_loc = AFL_R(MAP_SIZE);
-
 /* There is a problem with Ubuntu 18.04 and llvm 6.0 (see issue #63).
    The inline function successors() is not inlined and also not found at runtime
    :-( As I am unable to detect Ubuntu18.04 heree, the next best thing is to
@@ -269,104 +249,28 @@ bool AFLCoverage::runOnModule(Module &M) {
       // fprintf(stderr, " == %d\n", more_than_one);
       if (more_than_one != 1) continue;
 #endif
-      ConstantInt *CurLoc = ConstantInt::get(Int32Ty, cur_loc);
 
-      /* Load prev_loc */
-
-      LoadInst *PrevLoc = IRB.CreateLoad(AFLPrevLoc);
-      PrevLoc->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
-      Value *PrevLocCasted = IRB.CreateZExt(PrevLoc, IRB.getInt32Ty());
-
-      /* Load SHM pointer */
-
+      /* Counter = map[0] */
       LoadInst *MapPtr = IRB.CreateLoad(AFLMapPtr);
       MapPtr->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
-      Value *MapPtrIdx =
-          IRB.CreateGEP(MapPtr, IRB.CreateXor(PrevLocCasted, CurLoc));
-
-      /* Update bitmap */
-
-      LoadInst *Counter = IRB.CreateLoad(MapPtrIdx);
+      Value *   MapPtrPtr = IRB.CreateGEP(MapPtr, ConstantInt::get(Int64Ty, 0));
+      LoadInst *Counter = IRB.CreateLoad(Int64Ty, MapPtrPtr);
       Counter->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
 
-      Value *Incr = IRB.CreateAdd(Counter, One);
+      /* XOR Counter ^ IP */
 
-#if LLVM_VERSION_MAJOR < 9
-      if (neverZero_counters_str !=
-          NULL) {  // with llvm 9 we make this the default as the bug in llvm is
-                   // then fixed
-#endif
-        /* hexcoder: Realize a counter that skips zero during overflow.
-         * Once this counter reaches its maximum value, it next increments to 1
-         *
-         * Instead of
-         * Counter + 1 -> Counter
-         * we inject now this
-         * Counter + 1 -> {Counter, OverflowFlag}
-         * Counter + OverflowFlag -> Counter
-         */
-        /*       // we keep the old solutions just in case
-                 // Solution #1
-                 if (neverZero_counters_str[0] == '1') {
+      Value *Rip = BlockAddress::get(&F, &BB);
+      Value *Added = IRB.CreateAdd(Rip, Counter);
+      //      Value *Xored = IRB.CreateXor(Rip, Counter);
 
-                   CallInst *AddOv =
-           IRB.CreateBinaryIntrinsic(Intrinsic::uadd_with_overflow, Counter,
-           ConstantInt::get(Int8Ty, 1));
-                   AddOv->setMetadata(M.getMDKindID("nosanitize"),
-           MDNode::get(C, None)); Value *SumWithOverflowBit = AddOv; Incr =
-           IRB.CreateAdd(IRB.CreateExtractValue(SumWithOverflowBit, 0),  // sum
-                                        IRB.CreateZExt( // convert from one bit
-           type to 8 bits type IRB.CreateExtractValue(SumWithOverflowBit, 1), //
-           overflow Int8Ty));
-                  // Solution #2
+      /* Xored << 1 */
 
-                  } else if (neverZero_counters_str[0] == '2') {
+      //      Value *Shifted = IRB.CreateShl(Xored, 1);
 
-                     auto cf = IRB.CreateICmpEQ(Counter,
-           ConstantInt::get(Int8Ty, 255)); Value *HowMuch =
-           IRB.CreateAdd(ConstantInt::get(Int8Ty, 1), cf); Incr =
-           IRB.CreateAdd(Counter, HowMuch);
-                  // Solution #3
+      /* map[0] = Xored */
 
-                  } else if (neverZero_counters_str[0] == '3') {
-
-        */
-        // this is the solution we choose because llvm9 should do the right
-        // thing here
-        auto cf = IRB.CreateICmpEQ(Incr, Zero);
-        auto carry = IRB.CreateZExt(cf, Int8Ty);
-        Incr = IRB.CreateAdd(Incr, carry);
-/*
-         // Solution #4
-
-         } else if (neverZero_counters_str[0] == '4') {
-
-            auto cf = IRB.CreateICmpULT(Incr, ConstantInt::get(Int8Ty, 1));
-            auto carry = IRB.CreateZExt(cf, Int8Ty);
-            Incr = IRB.CreateAdd(Incr, carry);
-
-         } else {
-
-            fprintf(stderr, "Error: unknown value for AFL_NZERO_COUNTS: %s
-   (valid is 1-4)\n", neverZero_counters_str); exit(-1);
-
-         }
-
-*/
-#if LLVM_VERSION_MAJOR < 9
-
-      }
-
-#endif
-
-      IRB.CreateStore(Incr, MapPtrIdx)
+      IRB.CreateStore(Added, MapPtrPtr)
           ->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
-
-      /* Set prev_loc to cur_loc >> 1 */
-
-      StoreInst *Store =
-          IRB.CreateStore(ConstantInt::get(Int32Ty, cur_loc >> 1), AFLPrevLoc);
-      Store->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
 
       inst_blocks++;
 

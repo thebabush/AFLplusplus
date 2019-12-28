@@ -26,7 +26,7 @@
 
 /* Version string: */
 
-#define VERSION "++2.59d"  // c = release, d = volatile github dev
+#define VERSION "++2.59e"  // c = release, d = volatile github dev
 
 /******************************************************
  *                                                    *
@@ -340,7 +340,7 @@
    problems with complex programs). You need to recompile the target binary
    after changing this - otherwise, SEGVs may ensue. */
 
-#define MAP_SIZE_POW2 16
+#define MAP_SIZE_POW2 4
 #define MAP_SIZE (1 << MAP_SIZE_POW2)
 
 /* Maximum allocator request size (keep well under INT_MAX): */

@@ -35,7 +35,7 @@ u8 run_target(char** argv, u32 timeout) {
   static u64              exec_ms = 0;
 
   int status = 0;
-  u32 tb4;
+  u64 tb4;
 
   child_timed_out = 0;
 
@@ -127,7 +127,7 @@ u8 run_target(char** argv, u32 timeout) {
       /* Use a distinctive bitmap value to tell the parent about execv()
          falling through. */
 
-      *(u32*)trace_bits = EXEC_FAIL_SIG;
+      *(u64*)trace_bits = 0;
       exit(0);
 
     }
@@ -219,13 +219,7 @@ u8 run_target(char** argv, u32 timeout) {
 
   MEM_BARRIER();
 
-  tb4 = *(u32*)trace_bits;
-
-#ifdef WORD_SIZE_64
-  classify_counts((u64*)trace_bits);
-#else
-  classify_counts((u32*)trace_bits);
-#endif                                                     /* ^WORD_SIZE_64 */
+  tb4 = *(u64*)trace_bits;
 
   prev_timed_out = child_timed_out;
 
@@ -251,8 +245,7 @@ u8 run_target(char** argv, u32 timeout) {
 
   }
 
-  if ((dumb_mode == 1 || no_forkserver) && tb4 == EXEC_FAIL_SIG)
-    return FAULT_ERROR;
+  if ((dumb_mode == 1 || no_forkserver) && tb4 == 0) return FAULT_ERROR;
 
   return FAULT_NONE;
 
@@ -412,7 +405,7 @@ u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem, u32 handicap,
 
   for (stage_cur = 0; stage_cur < stage_max; ++stage_cur) {
 
-    u32 cksum;
+    u64 cksum;
 
     if (!first_run && !(stage_cur % stats_update_freq)) show_stats();
 
@@ -425,35 +418,20 @@ u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem, u32 handicap,
 
     if (stop_soon || fault != crash_mode) goto abort_calibration;
 
-    if (!dumb_mode && !stage_cur && !count_bytes(trace_bits)) {
+    if (!dumb_mode && !stage_cur && (u64) * (u64*)trace_bits == 0) {
 
       fault = FAULT_NOINST;
       goto abort_calibration;
 
     }
 
-    cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
+    cksum = (uint64_t) * (u64*)trace_bits;
 
     if (q->exec_cksum != cksum) {
 
-      u8 hnb = has_new_bits(virgin_bits);
-      if (hnb > new_bits) new_bits = hnb;
-
       if (q->exec_cksum) {
 
-        u32 i;
-
-        for (i = 0; i < MAP_SIZE; ++i) {
-
-          if (!var_bytes[i] && first_trace[i] != trace_bits[i]) {
-
-            var_bytes[i] = 1;
-            stage_max = CAL_CYCLES_LONG;
-
-          }
-
-        }
-
+        var_bytes[0] = 1;
         var_detected = 1;
 
       } else {
@@ -476,14 +454,12 @@ u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem, u32 handicap,
      This is used for fuzzing air time calculations in calculate_score(). */
 
   q->exec_us = (stop_us - start_us) / stage_max;
-  q->bitmap_size = count_bytes(trace_bits);
+  q->bitmap_size = 3;
   q->handicap = handicap;
   q->cal_failed = 0;
 
   total_bitmap_size += q->bitmap_size;
   ++total_bitmap_entries;
-
-  update_bitmap_score(q);
 
   /* If this case didn't result in new output from the instrumentation, tell
      parent. This is a non-critical problem, but something to warn the user
@@ -504,7 +480,7 @@ abort_calibration:
 
   if (var_detected) {
 
-    var_byte_count = count_bytes(var_bytes);
+    var_byte_count = 1;
 
     if (!q->var_behavior) {
 
@@ -714,7 +690,7 @@ u8 trim_case(char** argv, struct queue_entry* q, u8* in_buf) {
     while (remove_pos < q->len) {
 
       u32 trim_avail = MIN(remove_len, q->len - remove_pos);
-      u32 cksum;
+      u64 cksum;
 
       write_with_gap(in_buf, q->len, remove_pos, trim_avail);
 
@@ -725,7 +701,7 @@ u8 trim_case(char** argv, struct queue_entry* q, u8* in_buf) {
 
       /* Note that we don't keep track of crashes or hangs here; maybe TODO? */
 
-      cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
+      cksum = (uint64_t) * (u64*)trace_bits;
 
       /* If the deletion had no impact on the trace, make it permanent. This
          isn't perfect for variable-path inputs, but we're just making a
@@ -791,7 +767,6 @@ u8 trim_case(char** argv, struct queue_entry* q, u8* in_buf) {
     close(fd);
 
     memcpy(trace_bits, clean_trace, MAP_SIZE);
-    update_bitmap_score(q);
 
   }
 

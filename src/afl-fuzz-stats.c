@@ -233,7 +233,7 @@ void show_stats(void) {
 
   /* Do some bitmap stats. */
 
-  t_bytes = count_non_255_bytes(virgin_bits);
+  t_bytes = 1;
   t_byte_ratio = ((double)t_bytes * 100) / MAP_SIZE;
 
   if (t_bytes)
@@ -275,7 +275,7 @@ void show_stats(void) {
 
   /* Compute some mildly useful bitmap stats. */
 
-  t_bits = (MAP_SIZE << 3) - count_bits(virgin_bits);
+  t_bits = 1;
 
   /* Now, for the visuals... */
 

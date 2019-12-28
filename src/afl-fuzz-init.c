@@ -412,21 +412,6 @@ void read_testcases(void) {
 
 }
 
-/* Examine map coverage. Called once, for first test case. */
-
-static void check_map_coverage(void) {
-
-  u32 i;
-
-  if (count_bytes(trace_bits) < 100) return;
-
-  for (i = (1 << (MAP_SIZE_POW2 - 1)); i < MAP_SIZE; ++i)
-    if (trace_bits[i]) return;
-
-  WARNF("Recompile binary with newer version of afl to improve coverage!");
-
-}
-
 /* Perform dry run of all test cases to confirm that the app is working as
    expected. This is done only for the initial inputs, and only once. */
 
@@ -468,8 +453,6 @@ void perform_dry_run(char** argv) {
     switch (res) {
 
       case FAULT_NONE:
-
-        if (q == queue) check_map_coverage();
 
         if (crash_mode) FATAL("Test case '%s' does *NOT* crash", fn);
 

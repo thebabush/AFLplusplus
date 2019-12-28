@@ -68,8 +68,6 @@ static u8 *out_file,                   /* Trace output file                 */
 
 static u32 exec_tmout;                 /* Exec timeout (ms)                 */
 
-static u32 total, highest;             /* tuple content information         */
-
 static u64 mem_limit = MEM_LIMIT;      /* Memory limit (MB)                 */
 
 static u8 quiet_mode,                  /* Hide non-essential messages?      */
@@ -88,63 +86,13 @@ static u8 qemu_mode;
 /* Classify tuple counts. Instead of mapping to individual bits, as in
    afl-fuzz.c, we map to more user-friendly numbers between 1 and 8. */
 
-static const u8 count_class_human[256] = {
-
-    [0] = 0,          [1] = 1,        [2] = 2,         [3] = 3,
-    [4 ... 7] = 4,    [8 ... 15] = 5, [16 ... 31] = 6, [32 ... 127] = 7,
-    [128 ... 255] = 8
-
-};
-
-static const u8 count_class_binary[256] = {
-
-    [0] = 0,
-    [1] = 1,
-    [2] = 2,
-    [3] = 4,
-    [4 ... 7] = 8,
-    [8 ... 15] = 16,
-    [16 ... 31] = 32,
-    [32 ... 127] = 64,
-    [128 ... 255] = 128
-
-};
-
-static void classify_counts(u8* mem, const u8* map) {
-
-  u32 i = MAP_SIZE;
-
-  if (edges_only) {
-
-    while (i--) {
-
-      if (*mem) *mem = 1;
-      mem++;
-
-    }
-
-  } else if (!raw_instr_output) {
-
-    while (i--) {
-
-      *mem = map[*mem];
-      mem++;
-
-    }
-
-  }
-
-}
-
 /* Write results. */
 
-static u32 write_results(void) {
+static void write_results(void) {
 
   s32 fd;
-  u32 i, ret = 0;
 
-  u8 cco = !!getenv("AFL_CMIN_CRASHES_ONLY"),
-     caa = !!getenv("AFL_CMIN_ALLOW_ANY");
+  if (out_file == NULL || out_file[0] == 0) return;
 
   if (!strncmp(out_file, "/dev/", 5)) {
 
@@ -164,46 +112,12 @@ static u32 write_results(void) {
 
   }
 
-  if (binary_mode) {
+  FILE* f = fdopen(fd, "w");
+  fprintf(f, "0x%016llx\n", (u64) * (u64*)trace_bits);
+  fclose(f);
+  close(fd);
 
-    for (i = 0; i < MAP_SIZE; i++)
-      if (trace_bits[i]) ret++;
-
-    ck_write(fd, trace_bits, MAP_SIZE, out_file);
-    close(fd);
-
-  } else {
-
-    FILE* f = fdopen(fd, "w");
-
-    if (!f) PFATAL("fdopen() failed");
-
-    for (i = 0; i < MAP_SIZE; i++) {
-
-      if (!trace_bits[i]) continue;
-      ret++;
-
-      total += trace_bits[i];
-      if (highest < trace_bits[i]) highest = trace_bits[i];
-
-      if (cmin_mode) {
-
-        if (child_timed_out) break;
-        if (!caa && child_crashed != cco) break;
-
-        fprintf(f, "%u%u\n", trace_bits[i], i);
-
-      } else
-
-        fprintf(f, "%06u:%u\n", i, trace_bits[i]);
-
-    }
-
-    fclose(f);
-
-  }
-
-  return ret;
+  return;
 
 }
 
@@ -241,7 +155,7 @@ static void run_target(char** argv) {
 
       if (fd < 0 || dup2(fd, 1) < 0 || dup2(fd, 2) < 0) {
 
-        *(u32*)trace_bits = EXEC_FAIL_SIG;
+        *(u64*)trace_bits = 0;
         PFATAL("Descriptor initialization failed");
 
       }
@@ -279,7 +193,7 @@ static void run_target(char** argv) {
 
     execv(target_path, argv);
 
-    *(u32*)trace_bits = EXEC_FAIL_SIG;
+    *(u64*)trace_bits = 0;
     exit(0);
 
   }
@@ -307,11 +221,7 @@ static void run_target(char** argv) {
 
   /* Clean up bitmap, analyze exit condition, etc. */
 
-  if (*(u32*)trace_bits == EXEC_FAIL_SIG)
-    FATAL("Unable to execute '%s'", argv[0]);
-
-  classify_counts(trace_bits,
-                  binary_mode ? count_class_binary : count_class_human);
+  if (*(u64*)trace_bits == 0) FATAL("Unable to execute '%s'", argv[0]);
 
   if (!quiet_mode) SAYF(cRST "-- Program output ends --\n");
 
@@ -530,7 +440,6 @@ int main(int argc, char** argv) {
 
   s32    opt;
   u8     mem_limit_given = 0, timeout_given = 0, unicorn_mode = 0, use_wine = 0;
-  u32    tcnt = 0;
   char** use_argv;
 
   doc_path = access(DOC_PATH, F_OK) ? "docs" : DOC_PATH;
@@ -539,11 +448,7 @@ int main(int argc, char** argv) {
 
     switch (opt) {
 
-      case 'o':
-
-        if (out_file) FATAL("Multiple -o options not supported");
-        out_file = optarg;
-        break;
+      case 'o': out_file = optarg; break;
 
       case 'm': {
 
@@ -683,7 +588,7 @@ int main(int argc, char** argv) {
 
     }
 
-  if (optind == argc || !out_file) usage(argv[0]);
+  if (optind == argc) usage(argv[0]);
 
   setup_shm(0);
   setup_signal_handlers();
@@ -714,13 +619,12 @@ int main(int argc, char** argv) {
 
   run_target(use_argv);
 
-  tcnt = write_results();
+  write_results();
 
   if (!quiet_mode) {
 
-    if (!tcnt) FATAL("No instrumentation detected" cRST);
-    OKF("Captured %u tuples (highest value %u, total values %u) in '%s'." cRST,
-        tcnt, highest, total, out_file);
+    if (*(u64*)trace_bits == 0) FATAL("No instrumentation detected" cRST);
+    OKF("Captured total result of 0x%016llx" cRST, *(u64*)trace_bits);
 
   }
 

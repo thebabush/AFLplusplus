@@ -634,7 +634,7 @@ u8 fuzz_one_original(char** argv) {
 
     if (!dumb_mode && (stage_cur & 7) == 7) {
 
-      u32 cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
+      u64 cksum = (uint64_t) * (u64*)trace_bits;
 
       if (stage_cur == stage_max - 1 && cksum == prev_cksum) {
 
@@ -786,13 +786,13 @@ u8 fuzz_one_original(char** argv) {
 
     if (!eff_map[EFF_APOS(stage_cur)]) {
 
-      u32 cksum;
+      u64 cksum;
 
       /* If in dumb mode or if the file is very short, just flag everything
          without wasting time on checksums. */
 
       if (!dumb_mode && len >= EFF_MIN_LEN)
-        cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
+        cksum = (uint64_t) * (u64*)trace_bits;
       else
         cksum = ~queue_cur->exec_cksum;
 
@@ -2655,7 +2655,7 @@ u8 common_fuzzing(char** argv, struct MOpt_globals_t MOpt_globals) {
 
     if (!dumb_mode && (stage_cur & 7) == 7) {
 
-      u32 cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
+      u64 cksum = (uint64_t) * (u64*)trace_bits;
 
       if (stage_cur == stage_max - 1 && cksum == prev_cksum) {
 
@@ -2807,13 +2807,13 @@ u8 common_fuzzing(char** argv, struct MOpt_globals_t MOpt_globals) {
 
     if (!eff_map[EFF_APOS(stage_cur)]) {
 
-      u32 cksum;
+      u64 cksum;
 
       /* If in dumb mode or if the file is very short, just flag everything
          without wasting time on checksums. */
 
       if (!dumb_mode && len >= EFF_MIN_LEN)
-        cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
+        cksum = (uint64_t) * (u64*)trace_bits;
       else
         cksum = ~queue_cur->exec_cksum;
 
