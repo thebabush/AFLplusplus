@@ -7,7 +7,7 @@
 
   This will not allow for coverage analysis but a fast way to see if a new
   path was found.
-  the speed increase is roughtly about 20-25%.
+  The speed increase is roughtly about 20-25%.
 
   We would then need another, different run (different compiled) to see what
   that new coverage is.

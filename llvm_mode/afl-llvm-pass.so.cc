@@ -250,27 +250,66 @@ bool AFLCoverage::runOnModule(Module &M) {
       if (more_than_one != 1) continue;
 #endif
 
-      /* Counter = map[0] */
+/* Define only one of these three! 1 is the fastest, 3 is the slowest */
+#define VARIANT_1 1	/* ADD variant, fast and good */
+// #define VARIANT_2 1  /* XOR + << 1 variant - slower and really bad */
+// #define VARIANT_3 1  /* both */
+
+     /* Get map pointer */
       LoadInst *MapPtr = IRB.CreateLoad(AFLMapPtr);
       MapPtr->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
+
+#if VARIANT_1 || VARIANT_3
+      /* Counter = map[0] */
       Value *   MapPtrPtr = IRB.CreateGEP(MapPtr, ConstantInt::get(Int64Ty, 0));
       LoadInst *Counter = IRB.CreateLoad(Int64Ty, MapPtrPtr);
       Counter->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
 
-      /* XOR Counter ^ IP */
+      /* Counter += IP */
 
       Value *Rip = BlockAddress::get(&F, &BB);
       Value *Added = IRB.CreateAdd(Rip, Counter);
-      //      Value *Xored = IRB.CreateXor(Rip, Counter);
-
-      /* Xored << 1 */
-
-      //      Value *Shifted = IRB.CreateShl(Xored, 1);
-
-      /* map[0] = Xored */
+      
+      /* map[0] = Added */
 
       IRB.CreateStore(Added, MapPtrPtr)
           ->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
+#endif
+
+#ifdef VARIANT_3
+      /* Counter2 = map[1] */
+      Value *   MapPtrPtr2 = IRB.CreateGEP(MapPtr, ConstantInt::get(Int64Ty, 1));
+      LoadInst *Counter2 = IRB.CreateLoad(Int64Ty, MapPtrPtr2);
+      Counter2->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
+
+      /* (Counter2 ^ IP) << 1 */
+
+      Value *Xored = IRB.CreateXor(Rip, Counter2);
+      Value *Shifted = IRB.CreateShl(Xored, 1);
+
+      /* map[1] = Shifted */
+
+      IRB.CreateStore(Shifted, MapPtrPtr2)
+          ->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
+#endif
+
+#ifdef VARIANT_2
+      /* Counter2 = map[0] */
+      Value *   MapPtrPtr2 = IRB.CreateGEP(MapPtr, ConstantInt::get(Int64Ty, 0));
+      LoadInst *Counter2 = IRB.CreateLoad(Int64Ty, MapPtrPtr2);
+      Counter2->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
+
+      /* (Counter2 ^ IP) << 1 */
+
+      Value *Rip = BlockAddress::get(&F, &BB);
+      Value *Xored = IRB.CreateXor(Rip, Counter2);
+      Value *Shifted = IRB.CreateShl(Xored, 1);
+
+      /* map[1] = Shifted */
+
+      IRB.CreateStore(Shifted, MapPtrPtr2)
+          ->setMetadata(M.getMDKindID("nosanitize"), MDNode::get(C, None));
+#endif
 
       inst_blocks++;
 
