@@ -337,7 +337,7 @@ static void locate_diffs(u8* ptr1, u8* ptr2, u32 len, s32* first, s32* last) {
 u8 fuzz_one_original(char** argv) {
 
   s32 len, fd, temp_len, i, j;
-  u8 *in_buf, *out_buf, *orig_in, *ex_tmp, *eff_map = 0;
+  u8 *out_buf, *orig_in, *ex_tmp, *eff_map = 0;
   u64 havoc_queued = 0, orig_hit_cnt, new_hit_cnt;
   u32 splice_cycle = 0, perf_score = 100, orig_perf, prev_cksum, eff_cnt = 1;
 
@@ -444,6 +444,8 @@ u8 fuzz_one_original(char** argv) {
     }
 
   }
+  
+  cur_mutate_byte = 0;
 
   /************
    * TRIMMING *
@@ -471,6 +473,7 @@ u8 fuzz_one_original(char** argv) {
   }
 
   memcpy(out_buf, in_buf, len);
+  in_buf_len = len;
 
   /*********************
    * PERFORMANCE SCORE *

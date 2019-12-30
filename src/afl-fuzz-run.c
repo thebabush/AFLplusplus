@@ -809,6 +809,7 @@ abort_trimming:
 u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len) {
 
   u8 fault;
+  u32 count = 0, cmp_len = in_buf_len;
 
   if (post_handler) {
 
@@ -816,6 +817,13 @@ u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len) {
     if (!out_buf || !len) return 0;
 
   }
+
+  if (cmp_len > len) cmp_len = len;
+  while (count < cmp_len && out_buf[count] == in_buf[count]) count++;
+  if (count != cmp_len)
+    cur_mutate_byte = count;
+  else
+    cur_mutate_byte = 0;
 
   write_to_testcase(out_buf, len);
 

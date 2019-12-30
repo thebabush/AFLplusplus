@@ -121,6 +121,7 @@ struct queue_entry {
       fs_redundant;                     /* Marked as redundant in the fs?   */
 
   u32 bitmap_size,                      /* Number of bits set in bitmap     */
+      highest_mutated_byte,             /* highest mutation byte            */
       fuzz_level,                       /* Number of fuzzing iterations     */
       exec_cksum;                       /* Checksum of the execution trace  */
 
@@ -133,7 +134,8 @@ struct queue_entry {
   u32 tc_ref;                           /* Trace bytes ref count            */
 
   struct queue_entry *next,             /* Next element, if any             */
-      *next_100;                        /* 100 elements ahead               */
+      *next_100,                        /* 100 elements ahead               */
+      *origin;                          /* which entry is this based on     */
 
 };
 
@@ -260,7 +262,8 @@ extern u8 *in_dir,                      /* Input directory with test cases  */
     *file_extension,                    /* File extension                   */
     *orig_cmdline,                      /* Original command line            */
     *doc_path,                          /* Path to documentation dir        */
-    *infoexec,                         /* Command to execute on a new crash */
+    *infoexec,                          /* Command to execute on a new crash */
+    *in_buf,                            /* the queue original input buffer  */
     *out_file;                          /* File to fuzz, if any             */
 
 extern u32 exec_tmout;                  /* Configurable exec timeout (ms)   */
@@ -367,6 +370,8 @@ extern u32 queued_paths,                /* Total number of queued testcases */
     useless_at_start,                   /* Number of useless starting paths */
     var_byte_count,                     /* Bitmap bytes with var behavior   */
     current_entry,                      /* Current queue entry ID           */
+    cur_mutate_byte,                    /* lowest byte currently mutated    */
+    in_buf_len,                         /* orignal length of in_buf         */
     havoc_div;                          /* Cycle count divisor for havoc    */
 
 extern u64 total_crashes,               /* Total number of crashes          */

@@ -113,6 +113,11 @@ void add_to_queue(u8* fname, u32 len, u8 passed_det) {
   q->depth = cur_depth + 1;
   q->passed_det = passed_det;
   q->n_fuzz = 1;
+  q->origin = queue_cur;
+  if (queue_cur != NULL && queue_cur->highest_mutated_byte > cur_mutate_byte)
+    q->highest_mutated_byte = queue_cur->highest_mutated_byte;
+  else
+    q->highest_mutated_byte = cur_mutate_byte;
 
   if (q->depth > max_depth) max_depth = q->depth;
 
