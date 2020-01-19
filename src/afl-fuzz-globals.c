@@ -252,6 +252,8 @@ u8 *(*post_handler)(u8 *buf, u32 *len);
 size_t (*custom_mutator)(u8 *data, size_t size, u8 *mutated_out,
                          size_t max_size, unsigned int seed);
 size_t (*pre_save_handler)(u8 *data, size_t size, u8 **new_data);
+size_t (*custom_splicer)(u8 *data1, size_t size1, u8 *data2, size_t size2,
+                         u8 **new_data);
 
 /* Interesting values, as per config.h */
 

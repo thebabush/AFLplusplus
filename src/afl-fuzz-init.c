@@ -276,6 +276,8 @@ void setup_custom_mutator(void) {
 
   pre_save_handler = dlsym(dh, "afl_pre_save_handler");
   //  if (!pre_save_handler) WARNF("Symbol 'afl_pre_save_handler' not found.");
+  
+  custom_splicer = dlsym(dh, "afl_custom_splicer");
 
   OKF("Custom mutator installed successfully.");
 

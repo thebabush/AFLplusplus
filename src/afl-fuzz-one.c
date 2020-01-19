@@ -484,6 +484,7 @@ u8 fuzz_one_original(char** argv) {
     goto radamsa_stage;
 
   if (custom_mutator) {
+custom_stage:
 
     stage_short = "custom";
     stage_name = "custom mutator";
@@ -506,6 +507,7 @@ u8 fuzz_one_original(char** argv) {
         memcpy(out_buf, mutated_buf, mutated_size);
         if (common_fuzz_stuff(argv, out_buf, (u32)mutated_size)) {
 
+          raise(SIGABRT);
           goto abandon_entry;
 
         }
@@ -522,9 +524,15 @@ u8 fuzz_one_original(char** argv) {
 
     if (custom_only) {
 
-      /* Skip other stages */
-      ret_val = 0;
-      goto abandon_entry;
+      if (custom_splicer == NULL) {
+        /* Skip other stages */
+        ret_val = 0;
+        goto abandon_entry;
+      } else {
+        // TODO(thebabush): do this better
+        use_splicing = !use_splicing;
+        goto retry_splicing;
+      }
 
     }
 
@@ -2236,32 +2244,50 @@ retry_splicing:
 
     close(fd);
 
-    /* Find a suitable splicing location, somewhere between the first and
-       the last differing byte. Bail out if the difference is just a single
-       byte or so. */
+    if (custom_splicer == NULL) {
+      /* Find a suitable splicing location, somewhere between the first and
+         the last differing byte. Bail out if the difference is just a single
+         byte or so. */
 
-    locate_diffs(in_buf, new_buf, MIN(len, target->len), &f_diff, &l_diff);
+      locate_diffs(in_buf, new_buf, MIN(len, target->len), &f_diff, &l_diff);
 
-    if (f_diff < 0 || l_diff < 2 || f_diff == l_diff) {
+      if (f_diff < 0 || l_diff < 2 || f_diff == l_diff) {
 
-      ck_free(new_buf);
-      goto retry_splicing;
+        ck_free(new_buf);
+        goto retry_splicing;
+
+      }
+
+      /* Split somewhere between the first and last differing byte. */
+
+      split_at = f_diff + UR(l_diff - f_diff);
+
+      /* Do the thing. */
+
+      len = target->len;
+      memcpy(new_buf, in_buf, split_at);
+      in_buf = new_buf;
+
+      ck_free(out_buf);
+      out_buf = ck_alloc_nozero(len);
+      memcpy(out_buf, in_buf, len);
+    } else {
+      u8* new_data;
+      size_t new_size = custom_splicer(new_buf, target->len, in_buf, len,
+                                       &new_data);
+
+      if (new_size == 0 || new_data == NULL) {
+        ret_val = 0;
+        goto abandon_entry;
+      }
+
+      ck_free(out_buf);
+      out_buf = ck_alloc_nozero(new_size);
+      memcpy(out_buf, new_data, new_size);
+
+      goto custom_stage;
 
     }
-
-    /* Split somewhere between the first and last differing byte. */
-
-    split_at = f_diff + UR(l_diff - f_diff);
-
-    /* Do the thing. */
-
-    len = target->len;
-    memcpy(new_buf, in_buf, split_at);
-    in_buf = new_buf;
-
-    ck_free(out_buf);
-    out_buf = ck_alloc_nozero(len);
-    memcpy(out_buf, in_buf, len);
 
     if (use_radamsa > 1)
       goto radamsa_stage;
@@ -2278,7 +2304,6 @@ retry_splicing:
 
   ret_val = 0;
   goto radamsa_stage;
-
 
 radamsa_stage:
 
