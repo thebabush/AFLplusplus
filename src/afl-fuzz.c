@@ -1,5 +1,5 @@
 /*
-   american fuzzy lop - fuzzer code
+   american fuzzy lop++ - fuzzer code
    --------------------------------
 
    Originally written by Michal Zalewski
@@ -9,7 +9,7 @@
                         Andrea Fioraldi <andreafioraldi@gmail.com>
 
    Copyright 2016, 2017 Google Inc. All rights reserved.
-   Copyright 2019 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@
 static u8* get_libradamsa_path(u8* own_loc) {
 
   u8 *tmp, *cp, *rsl, *own_copy;
-  
+
   tmp = getenv("AFL_PATH");
 
   if (tmp) {
@@ -51,8 +51,7 @@ static u8* get_libradamsa_path(u8* own_loc) {
     cp = alloc_printf("%s/libradamsa.so", own_copy);
     ck_free(own_copy);
 
-    if (!access(cp, X_OK))
-      return cp;
+    if (!access(cp, X_OK)) return cp;
 
   } else
 
@@ -70,11 +69,12 @@ static u8* get_libradamsa_path(u8* own_loc) {
 
   }
 
-  SAYF("\n" cLRD "[-] " cRST
-       "Oops, unable to find the 'libradamsa.so' binary. The binary must be "
-       "built\n"
-       "    separately using 'make radamsa'. If you already have the binary "
-       "installed,\n    you may need to specify AFL_PATH in the environment.\n");
+  SAYF(
+      "\n" cLRD "[-] " cRST
+      "Oops, unable to find the 'libradamsa.so' binary. The binary must be "
+      "built\n"
+      "    separately using 'make radamsa'. If you already have the binary "
+      "installed,\n    you may need to specify AFL_PATH in the environment.\n");
 
   FATAL("Failed to locate 'libradamsa.so'.");
 
@@ -83,13 +83,6 @@ static u8* get_libradamsa_path(u8* own_loc) {
 /* Display usage hints. */
 
 static void usage(u8* argv0) {
-
-#ifdef USE_PYTHON
-#define PHYTON_SUPPORT \
-  "Compiled with Python 2.7 module support, see docs/python_mutators.txt\n"
-#else
-#define PHYTON_SUPPORT ""
-#endif
 
   SAYF(
       "\n%s [ options ] -- /path/to/fuzzed_app [ ... ]\n\n"
@@ -109,10 +102,12 @@ static void usage(u8* argv0) {
       "  -m megs       - memory limit for child process (%d MB)\n"
       "  -Q            - use binary-only instrumentation (QEMU mode)\n"
       "  -U            - use unicorn-based instrumentation (Unicorn mode)\n"
-      "  -W            - use qemu-based instrumentation with Wine (Wine mode)\n\n"
+      "  -W            - use qemu-based instrumentation with Wine (Wine "
+      "mode)\n\n"
 
       "Mutator settings:\n"
-      "  -R[R]         - add Radamsa as mutator, add another -R to exclusivly run it\n"
+      "  -R[R]         - add Radamsa as mutator, add another -R to exclusivly "
+      "run it\n"
       "  -L minutes    - use MOpt(imize) mode and set the limit time for "
       "entering the\n"
       "                  pacemaker mode (minutes of no new paths, 0 = "
@@ -120,9 +115,11 @@ static void usage(u8* argv0) {
       "                  a recommended value is 10-60. see docs/README.MOpt\n\n"
 
       "Fuzzing behavior settings:\n"
+      "  -N            - do not unlink the fuzzing input file\n"
       "  -d            - quick & dirty mode (skips deterministic steps)\n"
       "  -n            - fuzz without instrumentation (dumb mode)\n"
-      "  -x dir        - optional fuzzer dictionary (see README)\n\n"
+      "  -x dir        - optional fuzzer dictionary (see README, its really "
+      "good!)\n\n"
 
       "Testing settings:\n"
       "  -s seed       - use a fixed seed for the RNG\n"
@@ -142,13 +139,16 @@ static void usage(u8* argv0) {
       "file\n"
       "  -C            - crash exploration mode (the peruvian rabbit thing)\n"
       "  -e ext        - File extension for the temporarily generated test "
-      "case\n\n"
+      "case\n\n",
 
-      PHYTON_SUPPORT
+      argv0, EXEC_TIMEOUT, MEM_LIMIT);
 
-      "For additional tips, please consult %s/README\n\n",
+#ifdef USE_PYTHON
+  SAYF("Compiled with Python %s module support, see docs/python_mutators.txt\n",
+       (char*)PYTHON_VERSION);
+#endif
 
-      argv0, EXEC_TIMEOUT, MEM_LIMIT, doc_path);
+  SAYF("For additional help please consult %s/README.md\n\n", doc_path);
 
   exit(1);
 #undef PHYTON_SUPPORT
@@ -184,9 +184,8 @@ int main(int argc, char** argv) {
   struct timeval  tv;
   struct timezone tz;
 
-  SAYF(cCYA
-       "afl-fuzz" VERSION cRST
-       " based on afl by Michal Zalewski and a big online community\n");
+  SAYF(cCYA "afl-fuzz" VERSION cRST
+            " based on afl by Michal Zalewski and a big online community\n");
 
   doc_path = access(DOC_PATH, F_OK) ? "docs" : DOC_PATH;
 
@@ -194,7 +193,7 @@ int main(int argc, char** argv) {
   init_seed = tv.tv_sec ^ tv.tv_usec ^ getpid();
 
   while ((opt = getopt(argc, argv,
-                       "+i:I:o:f:m:t:T:dnCB:S:M:x:QUWe:p:s:V:E:L:hR")) > 0)
+                       "+i:I:o:f:m:t:T:dnCB:S:M:x:QNUWe:p:s:V:E:L:hR")) > 0)
 
     switch (opt) {
 
@@ -301,6 +300,7 @@ int main(int argc, char** argv) {
 
         if (out_file) FATAL("Multiple -f options not supported");
         out_file = optarg;
+        use_stdin = 0;
         break;
 
       case 'x':                                               /* dictionary */
@@ -422,6 +422,13 @@ int main(int argc, char** argv) {
         qemu_mode = 1;
 
         if (!mem_limit_given) mem_limit = MEM_LIMIT_QEMU;
+
+        break;
+
+      case 'N':                                             /* Unicorn mode */
+
+        if (no_unlink) FATAL("Multiple -N options not supported");
+        no_unlink = 1;
 
         break;
 
@@ -568,9 +575,9 @@ int main(int argc, char** argv) {
         usage(argv[0]);
         return -1;
         break;  // not needed
-     
+
       case 'R':
-      
+
         if (use_radamsa)
           use_radamsa = 2;
         else
@@ -585,7 +592,7 @@ int main(int argc, char** argv) {
   if (optind == argc || !in_dir || !out_dir) usage(argv[0]);
 
   OKF("afl++ is maintained by Marc \"van Hauser\" Heuse, Heiko \"hexcoder\" "
-      "Eissfeldt and Andrea Fioraldi");
+      "Eißfeldt and Andrea Fioraldi");
   OKF("afl++ is open source, get it at "
       "https://github.com/vanhauser-thc/AFLplusplus");
   OKF("Power schedules from github.com/mboehme/aflfast");
@@ -595,28 +602,30 @@ int main(int argc, char** argv) {
 
   if (fixed_seed) OKF("Running with fixed seed: %u", (u32)init_seed);
   srandom((u32)init_seed);
-  
+
   if (use_radamsa) {
-  
+
     OKF("Using Radamsa add-on");
-    
-    u8* libradamsa_path = get_libradamsa_path(argv[0]);
+
+    u8*   libradamsa_path = get_libradamsa_path(argv[0]);
     void* handle = dlopen(libradamsa_path, RTLD_NOW);
     ck_free(libradamsa_path);
-    
+
     if (!handle) FATAL("Failed to dlopen() libradamsa");
 
     void (*radamsa_init_ptr)(void) = dlsym(handle, "radamsa_init");
     radamsa_mutate_ptr = dlsym(handle, "radamsa");
 
-    if (!radamsa_init_ptr || !radamsa_mutate_ptr) FATAL("Failed to dlsym() libradamsa");
+    if (!radamsa_init_ptr || !radamsa_mutate_ptr)
+      FATAL("Failed to dlsym() libradamsa");
 
-    /* randamsa_init installs some signal hadlers, call it before setup_signal_handlers
-       so that AFL++ can then replace those signal handlers */
+    /* randamsa_init installs some signal hadlers, call it before
+       setup_signal_handlers so that AFL++ can then replace those signal
+       handlers */
     radamsa_init_ptr();
 
   }
-  
+
   setup_signal_handlers();
   check_asan_opts();
 
@@ -648,8 +657,7 @@ int main(int argc, char** argv) {
 
   }
 
-  if (getenv("AFL_DISABLE_TRIM"))
-    disable_trim = 1;
+  if (getenv("AFL_DISABLE_TRIM")) disable_trim = 1;
 
   if (getenv("AFL_NO_UI") && getenv("AFL_FORCE_UI"))
     FATAL("AFL_NO_UI and AFL_FORCE_UI are mutually exclusive");
@@ -694,10 +702,44 @@ int main(int argc, char** argv) {
   if (dumb_mode == 2 && no_forkserver)
     FATAL("AFL_DUMB_FORKSRV and AFL_NO_FORKSRV are mutually exclusive");
 
+  if (getenv("LD_PRELOAD"))
+    WARNF(
+        "LD_PRELOAD is set, are you sure that is want to you want to do "
+        "instead of using AFL_PRELOAD?");
+
   if (getenv("AFL_PRELOAD")) {
 
-    setenv("LD_PRELOAD", getenv("AFL_PRELOAD"), 1);
-    setenv("DYLD_INSERT_LIBRARIES", getenv("AFL_PRELOAD"), 1);
+    if (qemu_mode) {
+
+      u8* qemu_preload = getenv("QEMU_SET_ENV");
+      u8* afl_preload = getenv("AFL_PRELOAD");
+      u8* buf;
+
+      s32 i, afl_preload_size = strlen(afl_preload);
+      for (i = 0; i < afl_preload_size; ++i) {
+
+        if (afl_preload[i] == ',')
+          PFATAL(
+              "Comma (',') is not allowed in AFL_PRELOAD when -Q is "
+              "specified!");
+
+      }
+
+      if (qemu_preload)
+        buf = alloc_printf("%s,LD_PRELOAD=%s", qemu_preload, afl_preload);
+      else
+        buf = alloc_printf("LD_PRELOAD=%s", afl_preload);
+
+      setenv("QEMU_SET_ENV", buf, 1);
+
+      ck_free(buf);
+
+    } else {
+
+      setenv("LD_PRELOAD", getenv("AFL_PRELOAD"), 1);
+      setenv("DYLD_INSERT_LIBRARIES", getenv("AFL_PRELOAD"), 1);
+
+    }
 
   }
 
@@ -790,6 +832,8 @@ int main(int argc, char** argv) {
       u8* aa_loc = strstr(argv[i], "@@");
 
       if (aa_loc && !out_file) {
+
+        use_stdin = 0;
 
         if (file_extension) {
 

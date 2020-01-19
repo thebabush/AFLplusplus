@@ -9,7 +9,7 @@
                         Andrea Fioraldi <andreafioraldi@gmail.com>
 
    Copyright 2016, 2017 Google Inc. All rights reserved.
-   Copyright 2019 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -139,10 +139,11 @@ void bind_to_free_cpu(void) {
   for (i = 0; i < proccount; i++) {
 
 #if defined(__FreeBSD__)
-    if (procs[i].ki_oncpu < sizeof(cpu_used) && procs[i].ki_pctcpu > 10)
+    if (procs[i].ki_oncpu < sizeof(cpu_used) && procs[i].ki_pctcpu > 60)
       cpu_used[procs[i].ki_oncpu] = 1;
 #elif defined(__DragonFly__)
-    if (procs[i].kp_lwp.kl_cpuid < sizeof(cpu_used) && procs[i].kp_lwp.kl_pctcpu > 10)
+    if (procs[i].kp_lwp.kl_cpuid < sizeof(cpu_used) &&
+        procs[i].kp_lwp.kl_pctcpu > 10)
       cpu_used[procs[i].kp_lwp.kl_cpuid] = 1;
 #endif
 
@@ -736,7 +737,8 @@ void pivot_inputs(void) {
         use_name += 6;
       else
         use_name = rsl;
-      nfn = alloc_printf("%s/queue/id:%06u,time:0,orig:%s", out_dir, id, use_name);
+      nfn = alloc_printf("%s/queue/id:%06u,time:0,orig:%s", out_dir, id,
+                         use_name);
 
 #else
 
@@ -1426,6 +1428,7 @@ void check_crash_handling(void) {
      until I get a box to test the code. So, for now, we check for crash
      reporting the awful way. */
 
+#if !TARGET_OS_IPHONE
   if (system("launchctl list 2>/dev/null | grep -q '\\.ReportCrash$'")) return;
 
   SAYF(
@@ -1443,6 +1446,7 @@ void check_crash_handling(void) {
       "    launchctl unload -w ${SL}/LaunchAgents/${PL}.plist\n"
       "    sudo launchctl unload -w ${SL}/LaunchDaemons/${PL}.Root.plist\n");
 
+#endif
   if (!getenv("AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES"))
     FATAL("Crash reporter detected");
 
@@ -1565,8 +1569,10 @@ void check_cpu_governor(void) {
 
        "    You can later go back to the original state by replacing "
        "'performance'\n"
-       "    with 'ondemand' or 'powersave'. If you don't want to change the settings,\n"
-       "    set AFL_SKIP_CPUFREQ to make afl-fuzz skip this check - but expect some\n"
+       "    with 'ondemand' or 'powersave'. If you don't want to change the "
+       "settings,\n"
+       "    set AFL_SKIP_CPUFREQ to make afl-fuzz skip this check - but expect "
+       "some\n"
        "    performance drop.\n",
        min / 1024, max / 1024);
   FATAL("Suboptimal CPU scaling governor");
@@ -1611,7 +1617,8 @@ void check_cpu_governor(void) {
 
 void get_core_count(void) {
 
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__DragonFly__)
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || \
+    defined(__DragonFly__)
 
   size_t s = sizeof(cpu_core_count);
 
@@ -1657,7 +1664,8 @@ void get_core_count(void) {
 
     cur_runnable = (u32)get_runnable_processes();
 
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__DragonFly__)
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || \
+    defined(__DragonFly__)
 
     /* Add ourselves, since the 1-minute average doesn't include that yet. */
 
@@ -1899,8 +1907,10 @@ void check_binary(u8* fname) {
 #else
 
 #if !defined(__arm__) && !defined(__arm64__)
-  if (f_data[0] != 0xCF || f_data[1] != 0xFA || f_data[2] != 0xED)
-    FATAL("Program '%s' is not a 64-bit Mach-O binary", target_path);
+  if ((f_data[0] != 0xCF || f_data[1] != 0xFA || f_data[2] != 0xED) &&
+      (f_data[0] != 0xCA || f_data[1] != 0xFE || f_data[2] != 0xBA))
+    FATAL("Program '%s' is not a 64-bit or universal Mach-O binary",
+          target_path);
 #endif
 
 #endif                                                       /* ^!__APPLE__ */

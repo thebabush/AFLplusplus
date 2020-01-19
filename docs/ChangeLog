@@ -13,24 +13,66 @@ Want to stay in the loop on major new features? Join our mailing list by
 sending a mail to <afl-users+subscribe@googlegroups.com>.
 
 
-----------------------
-Version ++2.58d (dev):
-----------------------
+--------------------------
+Version ++2.60d (develop):
+--------------------------
+
+  - use -march=native if available
+  - afl-fuzz:
+     - now prints the real python version support compiled in
+     - set stronger performance compile options and little tweaks
+  - afl-clang-fast now shows in the help output for which llvm version it
+    was compiled for
+  - added blacklisted function check in llvm_mode
+  - added fix from Debian project to compile libdislocator and libtokencap
+
+
+--------------------------
+Version ++2.60c (release):
+--------------------------
+
+  - fixed a critical bug in afl-tmin that was introduced during ++2.53d
+  - added test cases for afl-cmin and afl-tmin to test/test.sh
+  - added ./experimental/argv_fuzzing ld_preload library by Kjell Braden
+  - added preeny's desock_dup ld_preload library as
+    ./experimental/socket_fuzzing for network fuzzing
+  - added AFL_AS_FORCE_INSTRUMENT environment variable for afl-as - this is
+    for the retrorewrite project
+  - we now set QEMU_SET_ENV from AFL_PRELOAD when qemu_mode is used
+
+
+--------------------------
+Version ++2.59c (release):
+--------------------------
 
   - qbdi_mode: fuzz android native libraries via QBDI framework
+  - unicorn_mode: switched to the new unicornafl, thanks domenukk
+                  (see https://github.com/vanhauser-thc/unicorn)
+  - afl-fuzz:
+     - added radamsa as (an optional) mutator stage (-R[R])
+     - added -u command line option to not unlink the fuzz input file
+     - Python3 support (autodetect)
+     - AFL_DISABLE_TRIM env var to disable the trim stage
+     - CPU affinity support for DragonFly
+  - llvm_mode:
+     - float splitting is now configured via AFL_LLVM_LAF_SPLIT_FLOATS
+     - support for llvm 10 included now (thanks to devnexen)
+  - libtokencap:
+     - support for *BSD/OSX/Dragonfly added
+     - hook common *cmp functions from widely used libraries
+  - compcov:
+     - hook common *cmp functions from widely used libraries
+     - floating point splitting support for QEMU on x86 targets
+  - qemu_mode: AFL_QEMU_DISABLE_CACHE env to disable QEMU TranslationBlocks caching
   - afl-analyze: added AFL_SKIP_BIN_CHECK support
   - better random numbers for gcc_plugin and llvm_mode (thanks to devnexen)
-  - afl-fuzz: CPU affinity support for DragonFly
-  - llvm_mode: float splitting is now configured via AFL_LLVM_LAF_SPLIT_FLOATS
-  - libtokencap: support for *BSD/OSX added
-  - compcov: floating point splitting support for QEMU on x86 targets
   - Dockerfile by courtesy of devnexen
-  - ripped regex.dictionary from Google afl PR
+  - added regex.dictionary
   - qemu and unicorn download scripts now try to download until the full
     download succeeded. f*ckin travis fails downloading 40% of the time!
+  - more support for Android (please test!)
   - added the few Android stuff we didnt have already from Google afl repository
   - removed unnecessary warnings
-  - added the radamsa stage
 
 
 --------------------------

@@ -1,8 +1,8 @@
 #
-# american fuzzy lop - makefile
+# american fuzzy lop++ - makefile
 # -----------------------------
 #
-# Written by Michal Zalewski
+# Originally written by Michal Zalewski
 # 
 # Copyright 2013, 2014, 2015, 2016, 2017 Google Inc. All rights reserved.
 # 
@@ -32,14 +32,80 @@ PROGS       = afl-gcc afl-fuzz afl-showmap afl-tmin afl-gotcpu afl-analyze
 SH_PROGS    = afl-plot afl-cmin afl-whatsup afl-system-config
 MANPAGES=$(foreach p, $(PROGS) $(SH_PROGS), $(p).8)
 
-CFLAGS     ?= -O3 -funroll-loops
-CFLAGS     += -Wall -D_FORTIFY_SOURCE=2 -g -Wno-pointer-sign -I include/ \
-	      -DAFL_PATH=\"$(HELPER_PATH)\" -DBIN_PATH=\"$(BIN_PATH)\" \
+ifeq "$(shell echo 'int main() {return 0; }' | $(CC) -x c - -flto=full -o .test 2>/dev/null && echo 1 || echo 0 ; rm -f .test )" "1"
+	CFLAGS_FLTO ?= -flto=full
+else
+ ifeq "$(shell echo 'int main() {return 0; }' | $(CC) -x c - -flto=thin -o .test 2>/dev/null && echo 1 || echo 0 ; rm -f .test )" "1"
+	CFLAGS_FLTO ?= -flto=thin
+ else
+  ifeq "$(shell echo 'int main() {return 0; }' | $(CC) -x c - -flto -o .test 2>/dev/null && echo 1 || echo 0 ; rm -f .test )" "1"
+	CFLAGS_FLTO ?= -flto
+  endif
+ endif
+endif
+
+ifeq "$(shell echo 'int main() {return 0; }' | $(CC) -x c - -march=native -o .test 2>/dev/null && echo 1 || echo 0 ; rm -f .test )" "1"
+	CFLAGS_OPT = -march=native
+endif
+
+ifneq "$(shell uname -m)" "x86_64"
+ ifneq "$(shell uname -m)" "i386"
+  ifneq "$(shell uname -m)" "amd64"
+	AFL_NO_X86=1
+  endif
+ endif
+endif
+
+CFLAGS     ?= -O3 -funroll-loops $(CFLAGS_OPT)
+CFLAGS     += -Wall -g -Wno-pointer-sign -I include/ \
+              -DAFL_PATH=\"$(HELPER_PATH)\" -DBIN_PATH=\"$(BIN_PATH)\" \
               -DDOC_PATH=\"$(DOC_PATH)\" -Wno-unused-function
 
 AFL_FUZZ_FILES = $(wildcard src/afl-fuzz*.c)
 
-PYTHON_INCLUDE	?= /usr/include/python2.7
+ifneq "$(filter %3.7m, $(shell python3.7m-config --includes 2>/dev/null))" ""
+  PYTHON_INCLUDE  ?= $(shell python3.7m-config --includes)
+  PYTHON_LIB      ?= $(shell python3.7m-config --ldflags)
+  PYTHON_VERSION   = 3.7m
+else
+  ifneq "$(filter %3.7, $(shell python3.7-config --includes 2>/dev/null))" ""
+    PYTHON_INCLUDE  ?= $(shell python3.7-config --includes)
+    PYTHON_LIB      ?= $(shell python3.7-config --ldflags)
+    PYTHON_VERSION   = 3.7
+  else
+    ifneq "$(filter %2.7, $(shell python2.7-config --includes 2>/dev/null))" ""
+      PYTHON_INCLUDE  ?= $(shell python2.7-config --includes)
+      PYTHON_LIB      ?= $(shell python2.7-config --ldflags)
+      PYTHON_VERSION   = 2.7
+    endif
+  endif
+endif
+
+PYTHON_INCLUDE	?= $(shell test -e /usr/include/python3.7m && echo /usr/include/python3.7m)
+PYTHON_INCLUDE	?= $(shell test -e /usr/include/python3.7 && echo /usr/include/python3.7)
+PYTHON_INCLUDE	?= $(shell test -e /usr/include/python2.7 && echo /usr/include/python2.7)
+
+ifneq "$(filter %3.7m, $(PYTHON_INCLUDE))" ""
+    PYTHON_VERSION ?= 3.7m
+    PYTHON_LIB  ?= -lpython3.7m
+else
+    ifneq "$(filter %3.7, $(PYTHON_INCLUDE))" ""
+        PYTHON_VERSION ?= 3.7
+    else
+        ifneq "$(filter %2.7, $(PYTHON_INCLUDE))" ""
+            PYTHON_VERSION ?= 2.7
+            PYTHON_LIB     ?= -lpython2.7
+        else
+            PYTHON_VERSION ?= none
+        endif
+    endif
+endif
+
+ifdef SOURCE_DATE_EPOCH
+    BUILD_DATE ?= $(shell date -u -d "@$(SOURCE_DATE_EPOCH)" -I 2>/dev/null || date -u -r "$(SOURCE_DATE_EPOCH)" -I 2>/dev/null || date -u -I)
+else
+    BUILD_DATE ?= $(shell date -I)
+endif
 
 ifneq "$(filter Linux GNU%,$(shell uname))" ""
   LDFLAGS  += -ldl
@@ -62,9 +128,9 @@ endif
 COMM_HDR    = include/alloc-inl.h include/config.h include/debug.h include/types.h
 
 
-ifeq "$(shell echo '\#include <Python.h>@int main() {return 0; }' | tr @ '\n' | $(CC) -x c - -o .test -I$(PYTHON_INCLUDE) -lpython2.7 2>/dev/null && echo 1 || echo 0 )" "1"
+ifeq "$(shell echo '\#include <Python.h>@int main() {return 0; }' | tr @ '\n' | $(CC) -x c - -o .test -I$(PYTHON_INCLUDE) $(LDFLAGS) $(PYTHON_LIB) 2>/dev/null && echo 1 || echo 0 ; rm -f .test )" "1"
 	PYTHON_OK=1
-	PYFLAGS=-DUSE_PYTHON -I$(PYTHON_INCLUDE) -lpython2.7
+	PYFLAGS=-DUSE_PYTHON -I$(PYTHON_INCLUDE) $(LDFLAGS) $(PYTHON_LIB) -DPYTHON_VERSION=\"$(PYTHON_VERSION)\"
 else
 	PYTHON_OK=0
 	PYFLAGS=
@@ -80,7 +146,7 @@ ifdef STATIC
   LDFLAGS += -lm -lrt -lpthread -lz -lutil
 endif
 
-ifeq "$(shell echo '\#include <sys/ipc.h>@\#include <sys/shm.h>@int main() { int _id = shmget(IPC_PRIVATE, 65536, IPC_CREAT | IPC_EXCL | 0600); shmctl(_id, IPC_RMID, 0); return 0;}' | tr @ '\n' | $(CC) -x c - -o .test2 2>/dev/null && echo 1 || echo 0 )" "1"
+ifeq "$(shell echo '\#include <sys/ipc.h>@\#include <sys/shm.h>@int main() { int _id = shmget(IPC_PRIVATE, 65536, IPC_CREAT | IPC_EXCL | 0600); shmctl(_id, IPC_RMID, 0); return 0;}' | tr @ '\n' | $(CC) -x c - -o .test2 2>/dev/null && echo 1 || echo 0 ; rm -f .test2 )" "1"
 	SHMAT_OK=1
 else
 	SHMAT_OK=0
@@ -103,6 +169,7 @@ man:    $(MANPAGES)
 
 tests:	source-only
 	@cd test ; ./test.sh
+	@rm -f test/errors
 
 performance-tests:	performance-test
 test-performance:	performance-test
@@ -120,7 +187,8 @@ help:
 	@echo "distrib: everything (for both binary-only and source code fuzzing)"
 	@echo "man: creates simple man pages from the help option of the programs"
 	@echo "install: installs everything you have compiled with the build option above"
-	@echo "clean: cleans everything. for qemu_mode and unicorn_mode it means it deletes all downloads as well"
+	@echo "clean: cleans everything. for qemu_mode it means it deletes all downloads as well"
+	@echo "code-format: format the code, do this before you commit and send a PR please!"
 	@echo "tests: this runs the test framework. It is more catered for the developers, but if you run into problems this helps pinpointing the problem"
 	@echo "document: creates afl-fuzz-document which will only do one run and save all manipulated inputs into out/queue/mutations"
 	@echo "help: shows these build options :-)"
@@ -163,12 +231,12 @@ ifeq "$(PYTHON_OK)" "1"
 
 test_python27:
 	@rm -f .test 2> /dev/null
-	@echo "[+] Python 2.7 support seems to be working."
+	@echo "[+] Python $(PYTHON_VERSION) support seems to be working."
 
 else
 
 test_python27:
-	@echo "[-] You seem to need to install the package python2.7-dev, but it is optional so we continue"
+	@echo "[-] You seem to need to install the package python3.7-dev or python2.7-dev (and perhaps python[23]-apt), but it is optional so we continue"
 
 endif
 
@@ -185,31 +253,31 @@ afl-as: src/afl-as.c include/afl-as.h $(COMM_HDR) | test_x86
 	ln -sf afl-as as
 
 src/afl-common.o : src/afl-common.c include/common.h
-	$(CC) $(CFLAGS) -c src/afl-common.c -o src/afl-common.o
+	$(CC) $(CFLAGS) $(CFLAGS_FLTO) -c src/afl-common.c -o src/afl-common.o
 
 src/afl-forkserver.o : src/afl-forkserver.c include/forkserver.h
-	$(CC) $(CFLAGS) -c src/afl-forkserver.c -o src/afl-forkserver.o
+	$(CC) $(CFLAGS) $(CFLAGS_FLTO) -c src/afl-forkserver.c -o src/afl-forkserver.o
 
 src/afl-sharedmem.o : src/afl-sharedmem.c include/sharedmem.h
-	$(CC) $(CFLAGS) -c src/afl-sharedmem.c -o src/afl-sharedmem.o
+	$(CC) $(CFLAGS) $(CFLAGS_FLTO) -c src/afl-sharedmem.c -o src/afl-sharedmem.o
 
 radamsa: src/third_party/libradamsa/libradamsa.so
 	cp src/third_party/libradamsa/libradamsa.so .
 
 src/third_party/libradamsa/libradamsa.so: src/third_party/libradamsa/libradamsa.c src/third_party/libradamsa/radamsa.h
-	$(MAKE) -C src/third_party/libradamsa/
+	$(MAKE) -C src/third_party/libradamsa/ CFLAGS="$(CFLAGS)"
 
 afl-fuzz: include/afl-fuzz.h $(AFL_FUZZ_FILES) src/afl-common.o src/afl-sharedmem.o src/afl-forkserver.o $(COMM_HDR) | test_x86
-	$(CC) $(CFLAGS) $(AFL_FUZZ_FILES) src/afl-common.o src/afl-sharedmem.o src/afl-forkserver.o -o $@ $(PYFLAGS) $(LDFLAGS)
+	$(CC) $(CFLAGS) $(CFLAGS_FLTO) $(AFL_FUZZ_FILES) src/afl-common.o src/afl-sharedmem.o src/afl-forkserver.o -o $@ $(PYFLAGS) $(LDFLAGS)
 
 afl-showmap: src/afl-showmap.c src/afl-common.o src/afl-sharedmem.o $(COMM_HDR) | test_x86
-	$(CC) $(CFLAGS) src/$@.c src/afl-common.o src/afl-sharedmem.o -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) $(CFLAGS_FLTO) src/$@.c src/afl-common.o src/afl-sharedmem.o -o $@ $(LDFLAGS)
 
 afl-tmin: src/afl-tmin.c src/afl-common.o src/afl-sharedmem.o src/afl-forkserver.o $(COMM_HDR) | test_x86
-	$(CC) $(CFLAGS) src/$@.c src/afl-common.o src/afl-sharedmem.o src/afl-forkserver.o -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) $(CFLAGS_FLTO) src/$@.c src/afl-common.o src/afl-sharedmem.o src/afl-forkserver.o -o $@ $(LDFLAGS)
 
 afl-analyze: src/afl-analyze.c src/afl-common.o src/afl-sharedmem.o $(COMM_HDR) | test_x86
-	$(CC) $(CFLAGS) src/$@.c src/afl-common.o src/afl-sharedmem.o -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) $(CFLAGS_FLTO) src/$@.c src/afl-common.o src/afl-sharedmem.o -o $@ $(LDFLAGS)
 
 afl-gotcpu: src/afl-gotcpu.c $(COMM_HDR) | test_x86
 	$(CC) $(CFLAGS) src/$@.c -o $@ $(LDFLAGS)
@@ -229,13 +297,16 @@ code-format:
 	./.custom-format.py -i llvm_mode/*.h
 	./.custom-format.py -i llvm_mode/*.cc
 	./.custom-format.py -i gcc_plugin/*.c
-	./.custom-format.py -i gcc_plugin/*.h
+	#./.custom-format.py -i gcc_plugin/*.h
 	./.custom-format.py -i gcc_plugin/*.cc
+	./.custom-format.py -i experimental/*/*.c
+	./.custom-format.py -i experimental/*/*.h
 	./.custom-format.py -i qemu_mode/patches/*.h
 	./.custom-format.py -i qemu_mode/libcompcov/*.c
 	./.custom-format.py -i qemu_mode/libcompcov/*.cc
 	./.custom-format.py -i qemu_mode/libcompcov/*.h
-	./.custom-format.py -i unicorn_mode/patches/*.h
+	./.custom-format.py -i qbdi_mode/*.c
+	./.custom-format.py -i qbdi_mode/*.cpp
 	./.custom-format.py -i *.h
 	./.custom-format.py -i *.c
 
@@ -268,27 +339,34 @@ all_done: test_build
 .NOTPARALLEL: clean
 
 clean:
-	rm -f $(PROGS) libradamsa.so afl-as as afl-g++ afl-clang afl-clang++ *.o src/*.o *~ a.out core core.[1-9][0-9]* *.stackdump .test .test1 .test2 test-instr .test-instr0 .test-instr1 qemu_mode/qemu-3.1.1.tar.xz afl-qemu-trace afl-gcc-fast afl-gcc-pass.so afl-gcc-rt.o afl-g++-fast *.so unicorn_mode/24f55a7973278f20f0de21b904851d99d4716263.tar.gz *.8
-	rm -rf out_dir qemu_mode/qemu-3.1.1 unicorn_mode/unicorn *.dSYM */*.dSYM
+	rm -f $(PROGS) libradamsa.so afl-fuzz-document afl-as as afl-g++ afl-clang afl-clang++ *.o src/*.o *~ a.out core core.[1-9][0-9]* *.stackdump .test .test1 .test2 test-instr .test-instr0 .test-instr1 qemu_mode/qemu-3.1.1.tar.xz afl-qemu-trace afl-gcc-fast afl-gcc-pass.so afl-gcc-rt.o afl-g++-fast *.so *.8
+	rm -rf out_dir qemu_mode/qemu-3.1.1 *.dSYM */*.dSYM
 	-$(MAKE) -C llvm_mode clean
 	-$(MAKE) -C gcc_plugin clean
 	$(MAKE) -C libdislocator clean
 	$(MAKE) -C libtokencap clean
+	$(MAKE) -C experimental/socket_fuzzing clean
+	$(MAKE) -C experimental/argv_fuzzing clean
 	$(MAKE) -C qemu_mode/unsigaction clean
 	$(MAKE) -C qemu_mode/libcompcov clean
 	$(MAKE) -C src/third_party/libradamsa/ clean
+	-rm -rf unicorn_mode/unicornafl
 
 distrib: all radamsa
 	-$(MAKE) -C llvm_mode
 	-$(MAKE) -C gcc_plugin
 	$(MAKE) -C libdislocator
 	$(MAKE) -C libtokencap
+	$(MAKE) -C experimental/socket_fuzzing
+	$(MAKE) -C experimental/argv_fuzzing
 	cd qemu_mode && sh ./build_qemu_support.sh
 	cd unicorn_mode && sh ./build_unicorn_support.sh
 
 binary-only: all radamsa
 	$(MAKE) -C libdislocator
 	$(MAKE) -C libtokencap
+	$(MAKE) -C experimental/socket_fuzzing
+	$(MAKE) -C experimental/argv_fuzzing
 	cd qemu_mode && sh ./build_qemu_support.sh
 	cd unicorn_mode && sh ./build_unicorn_support.sh
 
@@ -299,7 +377,7 @@ source-only: all radamsa
 	$(MAKE) -C libtokencap
 
 %.8:	%
-	@echo .TH $* 8 `date -I` "afl++" > $@
+	@echo .TH $* 8 $(BUILD_DATE) "afl++" > $@
 	@echo .SH NAME >> $@
 	@echo .B $* >> $@
 	@echo >> $@
@@ -318,7 +396,7 @@ source-only: all radamsa
 	@echo Apache License Version 2.0, January 2004 >> $@
 
 install: all $(MANPAGES)
-	mkdir -p -m 755 $${DESTDIR}$(BIN_PATH) $${DESTDIR}$(HELPER_PATH) $${DESTDIR}$(DOC_PATH) $${DESTDIR}$(MISC_PATH)
+	install -d -m 755 $${DESTDIR}$(BIN_PATH) $${DESTDIR}$(HELPER_PATH) $${DESTDIR}$(DOC_PATH) $${DESTDIR}$(MISC_PATH)
 	rm -f $${DESTDIR}$(BIN_PATH)/afl-plot.sh
 	install -m 755 $(PROGS) $(SH_PROGS) $${DESTDIR}$(BIN_PATH)
 	rm -f $${DESTDIR}$(BIN_PATH)/afl-as
@@ -339,12 +417,14 @@ endif
 	if [ -f libcompcov.so ]; then set -e; install -m 755 libcompcov.so $${DESTDIR}$(HELPER_PATH); fi
 	if [ -f libradamsa.so ]; then set -e; install -m 755 libradamsa.so $${DESTDIR}$(HELPER_PATH); fi
 	if [ -f afl-fuzz-document ]; then set -e; install -m 755 afl-fuzz-document $${DESTDIR}$(BIN_PATH); fi
+	$(MAKE) -C experimental/socket_fuzzing install
+	$(MAKE) -C experimental/argv_fuzzing install
 
 	set -e; ln -sf afl-gcc $${DESTDIR}$(BIN_PATH)/afl-g++
 	set -e; if [ -f afl-clang-fast ] ; then ln -sf afl-clang-fast $${DESTDIR}$(BIN_PATH)/afl-clang ; ln -sf afl-clang-fast $${DESTDIR}$(BIN_PATH)/afl-clang++ ; else ln -sf afl-gcc $${DESTDIR}$(BIN_PATH)/afl-clang ; ln -sf afl-gcc $${DESTDIR}$(BIN_PATH)/afl-clang++; fi
 
 	mkdir -m 0755 -p ${DESTDIR}$(MAN_PATH)
-	install -m0644 -D *.8 ${DESTDIR}$(MAN_PATH)
+	install -m0644 *.8 ${DESTDIR}$(MAN_PATH)
 
 	install -m 755 afl-as $${DESTDIR}$(HELPER_PATH)
 	ln -sf afl-as $${DESTDIR}$(HELPER_PATH)/as

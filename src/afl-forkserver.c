@@ -11,7 +11,7 @@
                         Andrea Fioraldi <andreafioraldi@gmail.com>
 
    Copyright 2016, 2017 Google Inc. All rights reserved.
-   Copyright 2019 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -43,6 +43,8 @@
 /* a program that includes afl-forkserver needs to define these */
 extern u8  uses_asan;
 extern u8 *trace_bits;
+extern u8  use_stdin;
+
 extern s32 forksrv_pid, child_pid, fsrv_ctl_fd, fsrv_st_fd;
 extern s32 out_fd, out_dir_fd, dev_null_fd;     /* initialize these with -1 */
 #ifndef HAVE_ARC4RANDOM
@@ -211,7 +213,7 @@ void init_forkserver(char **argv) {
 
     }
 
-    if (out_file) {
+    if (!use_stdin) {
 
       dup2(dev_null_fd, 0);
 
@@ -249,6 +251,7 @@ void init_forkserver(char **argv) {
     setenv("ASAN_OPTIONS",
            "abort_on_error=1:"
            "detect_leaks=0:"
+           "malloc_context_size=0:"
            "symbolize=0:"
            "allocator_may_return_null=1",
            0);
@@ -258,10 +261,11 @@ void init_forkserver(char **argv) {
 
     setenv("MSAN_OPTIONS",
            "exit_code=" STRINGIFY(MSAN_ERROR) ":"
-                                              "symbolize=0:"
-                                              "abort_on_error=1:"
-                                              "allocator_may_return_null=1:"
-                                              "msan_track_origins=0",
+           "symbolize=0:"
+           "abort_on_error=1:"
+           "malloc_context_size=0:"
+           "allocator_may_return_null=1:"
+           "msan_track_origins=0",
            0);
 
     execv(target_path, argv);

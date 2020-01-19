@@ -12,7 +12,7 @@
    counters by Andrea Fioraldi <andreafioraldi@gmail.com>
 
    Copyright 2015, 2016, 2017 Google Inc. All rights reserved.
-   Copyright 2019 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -79,8 +79,8 @@ void afl_debug_dump_saved_regs();
 void afl_persistent_loop();
 
 void tcg_gen_afl_call0(void *func);
-void tcg_gen_afl_compcov_log_call(void *func, target_ulong cur_loc,
-                                  TCGv_i64 arg1, TCGv_i64 arg2);
+void tcg_gen_afl_compcov_log_call(void *func, target_ulong cur_loc, TCGv arg1,
+                                  TCGv arg2);
 
 void tcg_gen_afl_maybe_log_call(target_ulong cur_loc);
 

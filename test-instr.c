@@ -1,10 +1,11 @@
 /*
-   american fuzzy lop - a trivial program to test the build
+   american fuzzy lop++ - a trivial program to test the build
    --------------------------------------------------------
 
-   Written by Michal Zalewski
+   Originally written by Michal Zalewski
 
    Copyright 2014 Google Inc. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -27,6 +28,7 @@ int main(int argc, char** argv) {
   if (argc > 1) {
 
     buf = argv[1];
+    printf("Input %s - ", buf);
 
   } else if (read(0, buf, sizeof(buf)) < 1) {
 

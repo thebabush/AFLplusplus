@@ -9,7 +9,7 @@
                         Andrea Fioraldi <andreafioraldi@gmail.com>
 
    Copyright 2016, 2017 Google Inc. All rights reserved.
-   Copyright 2019 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -95,6 +95,10 @@
 #include <pthread.h>
 #endif
 #endif                                                         /* __linux__ */
+
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#endif
 
 #ifndef SIMPLE_FILES
 #define CASE_PREFIX "id:"
@@ -265,7 +269,10 @@ extern u32 hang_tmout;                  /* Timeout used for hang det (ms)   */
 extern u64 mem_limit;                   /* Memory cap for child (MB)        */
 
 extern u8 cal_cycles,                   /* Calibration cycles defaults      */
-    cal_cycles_long, debug,             /* Debug mode                       */
+    cal_cycles_long,                    /* Calibration cycles defaults      */
+    no_unlink,                          /* do not unlink cur_input          */
+    use_stdin,                          /* use stdin for sending data       */
+    debug,                              /* Debug mode                       */
     custom_only,                        /* Custom mutator only mode         */
     python_only;                        /* Python-only mode                 */
 
@@ -409,7 +416,7 @@ extern u32 rand_cnt;                    /* Random number counter            */
 #endif
 
 extern u32 rand_seed[2];
-extern s64    init_seed;
+extern s64 init_seed;
 
 extern u64 total_cal_us,                /* Total calibration time (us)      */
     total_cal_cycles;                   /* Total calibration cycles         */

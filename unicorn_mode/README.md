@@ -2,9 +2,9 @@
 
 The idea and much of the original implementation comes from Nathan Voss <njvoss299@gmail.com>.
 
-The port to afl++ if by Dominik Maier <mail@dmnk.co>.
+The port to afl++ is by Dominik Maier <mail@dmnk.co>.
 
-The CompareCoverage and NeverZero counters features by Andrea Fioraldi <andreafioraldi@gmail.com>.
+The CompareCoverage and NeverZero counters features are by Andrea Fioraldi <andreafioraldi@gmail.com>.
 
 ## 1) Introduction
 
@@ -16,13 +16,13 @@ with afl-gcc or used in QEMU mode, or with other extensions such as
 TriforceAFL.
 
 There is a significant performance penalty compared to native AFL,
-but at least we're able to use AFL on these binaries, right?
+but at least we're able to use AFL++ on these binaries, right?
 
 ## 2) How to use
 
-Requirements: you need an installed python2 environment.
+Requirements: you need an installed python environment.
 
-### Building AFL's Unicorn Mode
+### Building AFL++'s Unicorn Mode
 
 First, make afl++ as usual.
 Once that completes successfully you need to build and add in the Unicorn Mode 
@@ -31,14 +31,11 @@ features:
   $ cd unicorn_mode
   $ ./build_unicorn_support.sh
 
-NOTE: This script downloads a Unicorn Engine commit that has been tested 
-and is stable-ish from the Unicorn github page. If you are offline, you'll need 
-to hack up this script a little bit and supply your own copy of Unicorn's latest 
-stable release. It's not very hard, just check out the beginning of the 
-build_unicorn_support.sh script and adjust as necessary.
+NOTE: This script checks out a Unicorn Engine fork as submodule that has been tested 
+and is stable-ish, based on the unicorn engine master. 
 
 Building Unicorn will take a little bit (~5-10 minutes). Once it completes 
-it automatically compiles a sample application and verify that it works.
+it automatically compiles a sample application and verifies that it works.
 
 ### Fuzzing with Unicorn Mode
 
@@ -51,11 +48,10 @@ To really use unicorn-mode effectively you need to prepare the following:
 		+ Quality/speed of results will depend greatly on quality of starting 
 		  samples
 		+ See AFL's guidance on how to create a sample corpus
-	* Unicorn-based test harness which:
+	* Unicornafl-based test harness which:
 		+ Adds memory map regions
 		+ Loads binary code into memory		
-		+ Emulates at least one instruction*
-			+ Yeah, this is lame. See 'Gotchas' section below for more info		
+		+ Calls uc.afl_fuzz() / uc.afl_start_forkserver
 		+ Loads and verifies data to fuzz from a command-line specified file
 			+ AFL will provide mutated inputs by changing the file passed to 
 			  the test harness
@@ -87,7 +83,7 @@ The 'helper_scripts' directory also contains several helper scripts that allow y
 to dump context from a running process, load it, and hook heap allocations. For details
 on how to use this check out the follow-up blog post to the one linked above.
 
-A example use of AFL-Unicorn mode is discussed in the Paper Unicorefuzz:
+A example use of AFL-Unicorn mode is discussed in the paper Unicorefuzz:
 https://www.usenix.org/conference/woot19/presentation/maier
 
 ## 3) Options
@@ -95,24 +91,28 @@ https://www.usenix.org/conference/woot19/presentation/maier
 As for the QEMU-based instrumentation, the afl-unicorn twist of afl++
 comes with a sub-instruction based instrumentation similar in purpose to laf-intel.
 
-The options that enables Unicorn CompareCoverage are the same used for QEMU.
+The options that enable Unicorn CompareCoverage are the same used for QEMU.
 AFL_COMPCOV_LEVEL=1 is to instrument comparisons with only immediate
-values. QEMU_COMPCOV_LEVEL=2 instruments all
+values. AFL_COMPCOV_LEVEL=2 instruments all
 comparison instructions. Comparison instructions are currently instrumented only
 for the x86, x86_64 and ARM targets.
 
 ## 4) Gotchas, feedback, bugs
 
-To make sure that AFL's fork server starts up correctly the Unicorn test 
-harness script must emulate at least one instruction before loading the
-data that will be fuzzed from the input file. It doesn't matter what the
-instruction is, nor if it is valid. This is an artifact of how the fork-server
-is started and could likely be fixed with some clever re-arranging of the
-patches applied to Unicorn.
+Running the build script builds Unicornafl and its python bindings and installs 
+them on your system. 
+This installation will leave any existing Unicorn installations untouched.
+If you want to use unicornafl instead of unicorn in a script,
+replace all `unicorn` imports with `unicornafl` inputs, everything else should "just work".
+If you use 3rd party code depending on unicorn, you can use unicornafl monkeypatching:
+Before importing anything that depends on unicorn, do:
 
-Running the build script builds Unicorn and its python bindings and installs 
-them on your system. This installation will supersede any existing Unicorn
-installation with the patched afl-unicorn version.
+```python
+import unicornafl
+unicornafl.monkeypatch()
+```
+
+This will replace all unicorn imports with unicornafl inputs.
 
 Refer to the unicorn_mode/samples/arm_example/arm_tester.c for an example
 of how to do this properly! If you don't get this right, AFL will not 

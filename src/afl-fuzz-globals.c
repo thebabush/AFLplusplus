@@ -9,7 +9,7 @@
                         Andrea Fioraldi <andreafioraldi@gmail.com>
 
    Copyright 2016, 2017 Google Inc. All rights reserved.
-   Copyright 2019 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -83,7 +83,10 @@ u32 hang_tmout = EXEC_TIMEOUT;          /* Timeout used for hang det (ms)   */
 u64 mem_limit = MEM_LIMIT;              /* Memory cap for child (MB)        */
 
 u8 cal_cycles = CAL_CYCLES,             /* Calibration cycles defaults      */
-    cal_cycles_long = CAL_CYCLES_LONG, debug,                 /* Debug mode */
+    cal_cycles_long = CAL_CYCLES_LONG,  /* Calibration cycles defaults      */
+    debug,                              /* Debug mode                       */
+    no_unlink,                          /* do not unlink cur_input          */
+    use_stdin = 1,                      /* use stdin for sending data       */
     custom_only,                        /* Custom mutator only mode         */
     python_only;                        /* Python-only mode                 */
 
@@ -96,7 +99,7 @@ u8 schedule = EXPLORE;                  /* Power schedule (default: EXPLORE)*/
 u8 havoc_max_mult = HAVOC_MAX_MULT;
 
 u8 use_radamsa;
-size_t (*radamsa_mutate_ptr)(u8*, size_t, u8*, size_t, u32);
+size_t (*radamsa_mutate_ptr)(u8 *, size_t, u8 *, size_t, u32);
 
 u8 skip_deterministic,                  /* Skip deterministic stages?       */
     force_deterministic,                /* Force deterministic stages?      */
@@ -215,7 +218,7 @@ u32 rand_cnt;                           /* Random number counter            */
 #endif
 
 u32 rand_seed[2];
-s64    init_seed;
+s64 init_seed;
 
 u64 total_cal_us,                       /* Total calibration time (us)      */
     total_cal_cycles;                   /* Total calibration cycles         */

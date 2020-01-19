@@ -11,7 +11,7 @@
                         Andrea Fioraldi <andreafioraldi@gmail.com>
 
    Copyright 2016, 2017 Google Inc. All rights reserved.
-   Copyright 2019 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -72,16 +72,19 @@ static u32 total, highest;             /* tuple content information         */
 
 static u64 mem_limit = MEM_LIMIT;      /* Memory limit (MB)                 */
 
-static u8 quiet_mode,                  /* Hide non-essential messages?      */
+u8 quiet_mode,                         /* Hide non-essential messages?      */
     edges_only,                        /* Ignore hit counts?                */
     raw_instr_output,                  /* Do not apply AFL filters          */
     cmin_mode,                         /* Generate output in afl-cmin mode? */
     binary_mode,                       /* Write output as a binary map      */
+    use_stdin = 1,                     /* use stdin - unused here           */
     keep_cores;                        /* Allow coredumps?                  */
 
 static volatile u8 stop_soon,          /* Ctrl-C pressed?                   */
     child_timed_out,                   /* Child timed out?                  */
     child_crashed;                     /* Child crashed?                    */
+
+static u8 qemu_mode;
 
 /* Classify tuple counts. Instead of mapping to individual bits, as in
    afl-fuzz.c, we map to more user-friendly numbers between 1 and 8. */
@@ -358,8 +361,37 @@ static void set_up_environment(void) {
 
   if (getenv("AFL_PRELOAD")) {
 
-    setenv("LD_PRELOAD", getenv("AFL_PRELOAD"), 1);
-    setenv("DYLD_INSERT_LIBRARIES", getenv("AFL_PRELOAD"), 1);
+    if (qemu_mode) {
+
+      u8* qemu_preload = getenv("QEMU_SET_ENV");
+      u8* afl_preload = getenv("AFL_PRELOAD");
+      u8* buf;
+
+      s32 i, afl_preload_size = strlen(afl_preload);
+      for (i = 0; i < afl_preload_size; ++i) {
+
+        if (afl_preload[i] == ',')
+          PFATAL(
+              "Comma (',') is not allowed in AFL_PRELOAD when -Q is "
+              "specified!");
+
+      }
+
+      if (qemu_preload)
+        buf = alloc_printf("%s,LD_PRELOAD=%s", qemu_preload, afl_preload);
+      else
+        buf = alloc_printf("LD_PRELOAD=%s", afl_preload);
+
+      setenv("QEMU_SET_ENV", buf, 1);
+
+      ck_free(buf);
+
+    } else {
+
+      setenv("LD_PRELOAD", getenv("AFL_PRELOAD"), 1);
+      setenv("DYLD_INSERT_LIBRARIES", getenv("AFL_PRELOAD"), 1);
+
+    }
 
   }
 
@@ -497,15 +529,14 @@ static void find_binary(u8* fname) {
 
 int main(int argc, char** argv) {
 
-  s32 opt;
-  u8  mem_limit_given = 0, timeout_given = 0, qemu_mode = 0, unicorn_mode = 0,
-     use_wine = 0;
+  s32    opt;
+  u8     mem_limit_given = 0, timeout_given = 0, unicorn_mode = 0, use_wine = 0;
   u32    tcnt = 0;
   char** use_argv;
 
   doc_path = access(DOC_PATH, F_OK) ? "docs" : DOC_PATH;
 
-  while ((opt = getopt(argc, argv, "+o:m:t:A:eqZQUWbcrh")) > 0)
+  while ((opt = getopt(argc, argv, "+o:f:m:t:A:eqZQUWbcrh")) > 0)
 
     switch (opt) {
 
@@ -552,6 +583,13 @@ int main(int argc, char** argv) {
       }
 
       break;
+
+      case 'f':  // only in here to avoid a compiler warning for use_stdin
+
+        use_stdin = 0;
+        FATAL("Option -f is not supported in afl-showmap");
+
+        break;
 
       case 't':
 

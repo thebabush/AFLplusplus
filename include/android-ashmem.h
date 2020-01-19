@@ -9,7 +9,7 @@
                         Andrea Fioraldi <andreafioraldi@gmail.com>
 
    Copyright 2016, 2017 Google Inc. All rights reserved.
-   Copyright 2019 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -63,7 +63,8 @@ static inline int shmctl(int __shmid, int __cmd, struct shmid_ds *__buf) {
 }
 
 static inline int shmget(key_t __key, size_t __size, int __shmflg) {
-  (void) __shmflg;
+
+  (void)__shmflg;
   int  fd, ret;
   char ourkey[11];
 
@@ -86,7 +87,8 @@ error:
 }
 
 static inline void *shmat(int __shmid, const void *__shmaddr, int __shmflg) {
-  (void) __shmflg;
+
+  (void)__shmflg;
   int   size;
   void *ptr;
 

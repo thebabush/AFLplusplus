@@ -9,7 +9,7 @@
                         Andrea Fioraldi <andreafioraldi@gmail.com>
 
    Copyright 2016, 2017 Google Inc. All rights reserved.
-   Copyright 2019 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -83,7 +83,7 @@ typedef int64_t s64;
 #define AFL_SR(s) (srandom(s))
 #define AFL_R(x) (random() % (x))
 #else
-#define AFL_SR(s)
+#define AFL_SR(s) ((void)s)
 #define AFL_R(x) (arc4random_uniform(x))
 #endif
 #else
@@ -91,7 +91,7 @@ typedef int64_t s64;
 #define SR(s) (srandom(s))
 #define R(x) (random() % (x))
 #else
-#define SR(s)
+#define SR(s) ((void)s)
 #define R(x) (arc4random_uniform(x))
 #endif
 #endif                                                    /* ^AFL_LLVM_PASS */

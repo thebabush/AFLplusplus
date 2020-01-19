@@ -1,8 +1,10 @@
 # american fuzzy lop plus plus (afl++)
 
-  Release Version: 2.58c 
+  ![Travis State](https://api.travis-ci.com/vanhauser-thc/AFLplusplus.svg?branch=master)
 
-  Github Version: 2.58d
+  Release Version: 2.60c 
+
+  Github Version: 2.60d
 
   includes all necessary/interesting changes from Google's afl 2.56b
 
@@ -25,7 +27,7 @@
   get any feature improvements since November 2017.
 
   Among other changes afl++ has a more performant llvm_mode, supports
-  llvm up to version 9, QEMU 3.1, more speed and crashfixes for QEMU,
+  llvm up to version 10, QEMU 3.1, more speed and crashfixes for QEMU,
   better *BSD and Android support and much, much more.
 
   Additionally the following features and patches have been integrated:
@@ -57,20 +59,21 @@
 
   A more thorough list is available in the PATCHES file.
 
-  | Feature/Instrumentation | AFL-GCC | LLVM_MODE | GCC_PLUGIN | QEMU_MODE | Unicorn |
-  | ----------------------- |:-------:|:---------:|:----------:|:---------:|:-------:|
-  | laf-intel / CompCov     |         |     x     |            |     x     |    x    |
-  | NeverZero               |    x    |     x(1)  |      (2)   |     x     |    x    |
-  | Persistent mode         |         |     x     |     x      |     x     |         |
-  | Whitelist               |         |     x     |     x      |           |         |
-  | InsTrim                 |         |     x     |            |           |         |
+  | Feature/Instrumentation | afl-gcc | llvm_mode | gcc_plugin | qemu_mode | unicorn_mode |
+  | ----------------------- |:-------:|:---------:|:----------:|:---------:|:------------:|
+  | laf-intel / CompCov     |         |     x     |            |  x86/arm  |   x86/arm    |
+  | NeverZero               |    x    |     x(1)  |      (2)   |     x     |      x       |
+  | Persistent mode         |         |     x     |     x      |    x86    |      x       |
+  | Whitelist               |         |     x     |     x      |           |              |
+  | InsTrim                 |         |     x     |            |           |              |
 
   neverZero:
+
   (1) only in LLVM >= 9.0 due to a bug in llvm in previous versions
-  (2) gcc create non-performant code, hence it is disabled in gcc_plugin
 
+  (2) gcc creates non-performant code, hence it is disabled in gcc_plugin
 
-  So all in all this is the best-of AFL that is currently out there :-)
+  So all in all this is the best-of afl that is currently out there :-)
 
   For new versions and additional information, check out:
   [https://github.com/vanhauser-thc/AFLplusplus](https://github.com/vanhauser-thc/AFLplusplus)
@@ -105,12 +108,12 @@ is what you should choose.
 These build options exist:
 
 * all: just the main afl++ binaries
-* radamsa: build libradamsa
 * binary-only: everything for binary-only fuzzing: qemu_mode, unicorn_mode, libdislocator, libtokencap, radamsa
 * source-only: everything for source code fuzzing: llvm_mode, libdislocator, libtokencap, radamsa
 * distrib: everything (for both binary-only and source code fuzzing)
 * install: installs everything you have compiled with the build options above
 * clean: cleans everything. for qemu_mode and unicorn_mode it means it deletes all downloads as well
+* code-format: format the code, do this before you commit and send a PR please!
 * tests: runs test cases to ensure that all features are still working as they should
 * help: shows these build options
 
@@ -121,7 +124,7 @@ afl++ binaries by passing the STATIC=1 argument to make:
 $ make all STATIC=1
 ```
 
-Note that afl++ is faster and better the newer the compilers used.
+Note that afl++ is faster and better the newer the compilers used are.
 Hence gcc-9 and especially llvm-9 should be the compilers of choice.
 If your distribution does not have them, you can use the Dockerfile:
 
@@ -201,7 +204,7 @@ superior to blind fuzzing or coverage-only tools.
 PLEASE NOTE: llvm_mode compilation with afl-clang-fast/afl-clang-fast++
 instead of afl-gcc/afl-g++ is much faster and has a few cool features.
 See llvm_mode/ - however few code does not compile with llvm.
-We support llvm versions 3.8.0 to 9.
+We support llvm versions 3.8.0 to 10.
 
 When source code is available, instrumentation can be injected by a companion
 tool that works as a drop-in replacement for gcc or clang in any standard build
@@ -224,7 +227,7 @@ For C++ programs, you'd would also want to set `CXX=/path/to/afl/afl-g++`.
 The clang wrappers (afl-clang and afl-clang++) can be used in the same way;
 clang users may also opt to leverage a higher-performance instrumentation mode,
 as described in [llvm_mode/README.md](llvm_mode/README.md).
-Clang/LLVM has a much better performance and works with LLVM version 3.8.0 to 9.
+Clang/LLVM has a much better performance and works with LLVM version 3.8.0 to 10.
 
 Using the LAF Intel performance enhancements are also recommended, see 
 [llvm_mode/README.laf-intel.md](llvm_mode/README.laf-intel.md)

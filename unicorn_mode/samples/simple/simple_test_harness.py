@@ -1,11 +1,12 @@
+#!/usr/bin/env python
 """ 
    Simple test harness for AFL's Unicorn Mode.
 
    This loads the simple_target.bin binary (precompiled as MIPS code) into
    Unicorn's memory map for emulation, places the specified input into
    simple_target's buffer (hardcoded to be at 0x300000), and executes 'main()'.
-   If any crashes occur during emulation, this script throws a matching signal
-   to tell AFL that a crash occurred.
+   If any crashes occur during emulation, unicornafl will 
+   tell AFL that a crash occurred.
 
    Run under AFL as follows:
 
@@ -17,8 +18,8 @@ import argparse
 import os
 import signal
 
-from unicorn import *
-from unicorn.mips_const import *
+from unicornafl import *
+from unicornafl.mips_const import *
 
 # Path to the file containing the binary to emulate
 BINARY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'simple_target.bin')
@@ -58,35 +59,17 @@ def unicorn_debug_mem_invalid_access(uc, access, address, size, value, user_data
     else:
         print("        >>> INVALID Read: addr=0x{0:016x} size={1}".format(address, size))   
 
-def force_crash(uc_error):
-    # This function should be called to indicate to AFL that a crash occurred during emulation.
-    # Pass in the exception received from Uc.emu_start()
-    mem_errors = [
-        UC_ERR_READ_UNMAPPED, UC_ERR_READ_PROT, UC_ERR_READ_UNALIGNED,
-        UC_ERR_WRITE_UNMAPPED, UC_ERR_WRITE_PROT, UC_ERR_WRITE_UNALIGNED,
-        UC_ERR_FETCH_UNMAPPED, UC_ERR_FETCH_PROT, UC_ERR_FETCH_UNALIGNED,
-    ]
-    if uc_error.errno in mem_errors:
-        # Memory error - throw SIGSEGV
-        os.kill(os.getpid(), signal.SIGSEGV)
-    elif uc_error.errno == UC_ERR_INSN_INVALID:
-        # Invalid instruction - throw SIGILL
-        os.kill(os.getpid(), signal.SIGILL)
-    else:
-        # Not sure what happened - throw SIGABRT
-        os.kill(os.getpid(), signal.SIGABRT)
-
 def main():
 
     parser = argparse.ArgumentParser(description="Test harness for simple_target.bin")
     parser.add_argument('input_file', type=str, help="Path to the file containing the mutated input to load")
-    parser.add_argument('-d', '--debug', default=False, action="store_true", help="Enables debug tracing")
+    parser.add_argument('-t', '--trace', default=False, action="store_true", help="Enables debug tracing")
     args = parser.parse_args()
 
     # Instantiate a MIPS32 big endian Unicorn Engine instance
     uc = Uc(UC_ARCH_MIPS, UC_MODE_MIPS32 + UC_MODE_BIG_ENDIAN)
 
-    if args.debug:
+    if args.trace:
         uc.hook_add(UC_HOOK_BLOCK, unicorn_debug_block)
         uc.hook_add(UC_HOOK_CODE, unicorn_debug_instruction)
         uc.hook_add(UC_HOOK_MEM_WRITE | UC_HOOK_MEM_READ, unicorn_debug_mem_access)
@@ -120,51 +103,24 @@ def main():
     uc.mem_map(STACK_ADDRESS, STACK_SIZE)
     uc.reg_write(UC_MIPS_REG_SP, STACK_ADDRESS + STACK_SIZE)
 
-    #-----------------------------------------------------
-    # Emulate 1 instruction to kick off AFL's fork server
-    #   THIS MUST BE DONE BEFORE LOADING USER DATA! 
-    #   If this isn't done every single run, the AFL fork server 
-    #   will not be started appropriately and you'll get erratic results!
-    #   It doesn't matter what this returns with, it just has to execute at
-    #   least one instruction in order to get the fork server started.
-
-    # Execute 1 instruction just to startup the forkserver
-    print("Starting the AFL forkserver by executing 1 instruction")
-    try:
-        uc.emu_start(uc.reg_read(UC_MIPS_REG_PC), 0, 0, count=1)
-    except UcError as e:
-        print("ERROR: Failed to execute a single instruction (error: {})!".format(e))
-        return
-
-    #-----------------------------------------------
-    # Load the mutated input and map it into memory
-
-    # Load the mutated input from disk
-    print("Loading data input from {}".format(args.input_file))
-    input_file = open(args.input_file, 'rb')
-    input = input_file.read()
-    input_file.close()
-
-    # Apply constraints to the mutated input
-    if len(input) > DATA_SIZE_MAX:
-        print("Test input is too long (> {} bytes)".format(DATA_SIZE_MAX))
-        return
-
-    # Write the mutated command into the data buffer
+    # reserve some space for data
     uc.mem_map(DATA_ADDRESS, DATA_SIZE_MAX)
-    uc.mem_write(DATA_ADDRESS, input)
 
-    #------------------------------------------------------------
-    # Emulate the code, allowing it to process the mutated input
+    #-----------------------------------------------------
+    # Set up a callback to place input data (do little work here, it's called for every single iteration)
+    # We did not pass in any data and don't use persistent mode, so we can ignore these params.
+    # Be sure to check out the docstrings for the uc.afl_* functions.
+    def place_input_callback(uc, input, persistent_round, data):
+        # Apply constraints to the mutated input
+        if len(input) > DATA_SIZE_MAX:
+            #print("Test input is too long (> {} bytes)")
+            return False
 
-    print("Executing until a crash or execution reaches 0x{0:016x}".format(end_address))
-    try:
-        result = uc.emu_start(uc.reg_read(UC_MIPS_REG_PC), end_address, timeout=0, count=0)
-    except UcError as e:
-        print("Execution failed with error: {}".format(e))
-        force_crash(e)
+        # Write the mutated command into the data buffer
+        uc.mem_write(DATA_ADDRESS, input)
 
-    print("Done.")
+    # Start the fuzzer.
+    uc.afl_fuzz(args.input_file, place_input_callback, [end_address])
 
 if __name__ == "__main__":
     main()

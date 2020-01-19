@@ -13,6 +13,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/IR/DebugInfo.h"
@@ -93,6 +94,28 @@ struct InsTrim : public ModulePass {
 
   }
 
+  // ripped from aflgo
+  static bool isBlacklisted(const Function *F) {
+
+    static const SmallVector<std::string, 4> Blacklist = {
+
+        "asan.",
+        "llvm.",
+        "sancov.",
+        "__ubsan_handle_",
+
+    };
+
+    for (auto const &BlacklistFunc : Blacklist) {
+
+      if (F->getName().startswith(BlacklistFunc)) { return true; }
+
+    }
+
+    return false;
+
+  }
+
   bool runOnModule(Module &M) override {
 
     char be_quiet = 0;
@@ -158,9 +181,9 @@ struct InsTrim : public ModulePass {
 
       if (!myWhitelist.empty()) {
 
-        bool      instrumentBlock = false;
-        DebugLoc  Loc;
-        StringRef instFilename;
+        bool         instrumentBlock = false;
+        DebugLoc     Loc;
+        StringRef    instFilename;
         unsigned int instLine = 0;
 
         for (auto &BB : F) {
@@ -222,17 +245,24 @@ struct InsTrim : public ModulePass {
         if (!instrumentBlock) {
 
           if (!be_quiet) {
-             if (!instFilename.str().empty())
-               SAYF(cYEL "[!] " cBRI "Not in whitelist, skipping %s line %u...\n",
-                    instFilename.str().c_str(), instLine);
-             else
-               SAYF(cYEL "[!] " cBRI "No filename information found, skipping it");
+
+            if (!instFilename.str().empty())
+              SAYF(cYEL "[!] " cBRI
+                        "Not in whitelist, skipping %s line %u...\n",
+                   instFilename.str().c_str(), instLine);
+            else
+              SAYF(cYEL "[!] " cBRI
+                        "No filename information found, skipping it");
+
           }
+
           continue;
 
         }
 
       }
+
+      if (isBlacklisted(&F)) continue;
 
       std::unordered_set<BasicBlock *> MS;
       if (!MarkSetOpt) {

@@ -1,5 +1,5 @@
 /*
-   american fuzzy lop - free CPU gizmo
+   american fuzzy lop++ - free CPU gizmo
    -----------------------------------
 
    Originally written by Michal Zalewski
@@ -9,7 +9,7 @@
                         Andrea Fioraldi <andreafioraldi@gmail.com>
 
    Copyright 2016, 2017 Google Inc. All rights reserved.
-   Copyright 2019 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -52,7 +52,8 @@
 #include "types.h"
 #include "debug.h"
 
-#if defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__APPLE__) || defined(__DragonFly__)
+#if defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__) || \
+    defined(__APPLE__) || defined(__DragonFly__)
 #define HAVE_AFFINITY 1
 #if defined(__FreeBSD__) || defined(__DragonFly__)
 #include <pthread.h>
@@ -69,7 +70,7 @@
 #include <mach/thread_act.h>
 #include <mach/thread_policy.h>
 #endif
-#endif                            /* __linux__ || __FreeBSD__ || __NetBSD__ || __APPLE__ */
+#endif               /* __linux__ || __FreeBSD__ || __NetBSD__ || __APPLE__ */
 
 /* Get unix time in microseconds. */
 
@@ -183,11 +184,11 @@ int main(int argc, char** argv) {
 
       cpuset_set(i, c);
 #elif defined(__APPLE__)
-      thread_affinity_policy_data_t c = { i };
+      thread_affinity_policy_data_t c = {i};
       thread_port_t native_thread = pthread_mach_thread_np(pthread_self());
       if (thread_policy_set(native_thread, THREAD_AFFINITY_POLICY,
-	 (thread_policy_t)&c, 1) != KERN_SUCCESS)
-	PFATAL("thread_policy_set failed");
+                            (thread_policy_t)&c, 1) != KERN_SUCCESS)
+        PFATAL("thread_policy_set failed");
 #endif
 
 #if defined(__FreeBSD__) || defined(__DragonFly__)
@@ -211,7 +212,7 @@ int main(int argc, char** argv) {
 
       if (util_perc < 110) {
 
-        SAYF("    Core #%u: " cLGN "AVAILABLE\n" cRST, i);
+        SAYF("    Core #%u: " cLGN "AVAILABLE" cRST "(%u%%)\n", i, util_perc);
         exit(0);
 
       } else if (util_perc < 250) {

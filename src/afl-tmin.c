@@ -11,7 +11,7 @@
                         Andrea Fioraldi <andreafioraldi@gmail.com>
 
    Copyright 2016, 2017 Google Inc. All rights reserved.
-   Copyright 2019 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -88,13 +88,15 @@ u64 mem_limit = MEM_LIMIT;             /* Memory limit (MB)                 */
 
 s32 dev_null_fd = -1;                  /* FD to /dev/null                   */
 
-static u8 crash_mode,                  /* Crash-centric mode?               */
+u8 crash_mode,                         /* Crash-centric mode?               */
     exit_crash,                        /* Treat non-zero exit as crash?     */
     edges_only,                        /* Ignore hit counts?                */
     exact_mode,                        /* Require path match for crashes?   */
     use_stdin = 1;                     /* Use stdin for program input?      */
 
 static volatile u8 stop_soon;          /* Ctrl-C pressed?                   */
+
+static u8 qemu_mode;
 
 /*
  * forkserver section
@@ -882,8 +884,37 @@ static void set_up_environment(void) {
 
   if (getenv("AFL_PRELOAD")) {
 
-    setenv("LD_PRELOAD", getenv("AFL_PRELOAD"), 1);
-    setenv("DYLD_INSERT_LIBRARIES", getenv("AFL_PRELOAD"), 1);
+    if (qemu_mode) {
+
+      u8* qemu_preload = getenv("QEMU_SET_ENV");
+      u8* afl_preload = getenv("AFL_PRELOAD");
+      u8* buf;
+
+      s32 i, afl_preload_size = strlen(afl_preload);
+      for (i = 0; i < afl_preload_size; ++i) {
+
+        if (afl_preload[i] == ',')
+          PFATAL(
+              "Comma (',') is not allowed in AFL_PRELOAD when -Q is "
+              "specified!");
+
+      }
+
+      if (qemu_preload)
+        buf = alloc_printf("%s,LD_PRELOAD=%s", qemu_preload, afl_preload);
+      else
+        buf = alloc_printf("LD_PRELOAD=%s", afl_preload);
+
+      setenv("QEMU_SET_ENV", buf, 1);
+
+      ck_free(buf);
+
+    } else {
+
+      setenv("LD_PRELOAD", getenv("AFL_PRELOAD"), 1);
+      setenv("DYLD_INSERT_LIBRARIES", getenv("AFL_PRELOAD"), 1);
+
+    }
 
   }
 
@@ -1025,9 +1056,8 @@ static void read_bitmap(u8* fname) {
 
 int main(int argc, char** argv) {
 
-  s32 opt;
-  u8  mem_limit_given = 0, timeout_given = 0, qemu_mode = 0, unicorn_mode = 0,
-     use_wine = 0;
+  s32    opt;
+  u8     mem_limit_given = 0, timeout_given = 0, unicorn_mode = 0, use_wine = 0;
   char** use_argv;
 
   doc_path = access(DOC_PATH, F_OK) ? "docs" : DOC_PATH;

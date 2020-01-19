@@ -9,7 +9,7 @@
                         Andrea Fioraldi <andreafioraldi@gmail.com>
 
    Copyright 2016, 2017 Google Inc. All rights reserved.
-   Copyright 2019 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -35,14 +35,18 @@ int init_py() {
 
   if (module_name) {
 
+#if PY_MAJOR_VERSION >= 3
+    PyObject* py_name = PyUnicode_FromString(module_name);
+#else
     PyObject* py_name = PyString_FromString(module_name);
+#endif
 
     py_module = PyImport_Import(py_name);
     Py_DECREF(py_name);
 
     if (py_module != NULL) {
 
-      u8 py_notrim = 0;
+      u8 py_notrim = 0, py_idx;
       py_functions[PY_FUNC_INIT] = PyObject_GetAttrString(py_module, "init");
       py_functions[PY_FUNC_FUZZ] = PyObject_GetAttrString(py_module, "fuzz");
       py_functions[PY_FUNC_INIT_TRIM] =
@@ -51,7 +55,7 @@ int init_py() {
           PyObject_GetAttrString(py_module, "post_trim");
       py_functions[PY_FUNC_TRIM] = PyObject_GetAttrString(py_module, "trim");
 
-      for (u8 py_idx = 0; py_idx < PY_FUNC_COUNT; ++py_idx) {
+      for (py_idx = 0; py_idx < PY_FUNC_COUNT; ++py_idx) {
 
         if (!py_functions[py_idx] || !PyCallable_Check(py_functions[py_idx])) {
 
@@ -91,7 +95,12 @@ int init_py() {
 
       /* Provide the init function a seed for the Python RNG */
       py_args = PyTuple_New(1);
+#if PY_MAJOR_VERSION >= 3
+      py_value = PyLong_FromLong(UR(0xFFFFFFFF));
+#else
       py_value = PyInt_FromLong(UR(0xFFFFFFFF));
+#endif
+
       if (!py_value) {
 
         Py_DECREF(py_args);
@@ -216,7 +225,11 @@ u32 init_trim_py(char* buf, size_t buflen) {
 
   if (py_value != NULL) {
 
+#if PY_MAJOR_VERSION >= 3
+    u32 retcnt = (u32)PyLong_AsLong(py_value);
+#else
     u32 retcnt = PyInt_AsLong(py_value);
+#endif
     Py_DECREF(py_value);
     return retcnt;
 
@@ -250,7 +263,11 @@ u32 post_trim_py(char success) {
 
   if (py_value != NULL) {
 
+#if PY_MAJOR_VERSION >= 3
+    u32 retcnt = (u32)PyLong_AsLong(py_value);
+#else
     u32 retcnt = PyInt_AsLong(py_value);
+#endif
     Py_DECREF(py_value);
     return retcnt;
 
@@ -328,7 +345,12 @@ u8 trim_case_python(char** argv, struct queue_entry* q, u8* in_buf) {
     fault = run_target(argv, exec_tmout);
     ++trim_execs;
 
-    if (stop_soon || fault == FAULT_ERROR) goto abort_trimming;
+    if (stop_soon || fault == FAULT_ERROR) {
+
+      free(retbuf);
+      goto abort_trimming;
+
+    }
 
     cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
 
@@ -363,6 +385,8 @@ u8 trim_case_python(char** argv, struct queue_entry* q, u8* in_buf) {
              stage_max);
 
     }
+
+    free(retbuf);
 
     /* Since this can be slow, update the screen every now and then. */
 

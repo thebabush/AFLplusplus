@@ -6,7 +6,7 @@
 # Written and maintaned by Andrea Fioraldi <andreafioraldi@gmail.com>
 #
 # Copyright 2015, 2016, 2017 Google Inc. All rights reserved.
-# Copyright 2019 AFLplusplus Project. All rights reserved.
+# Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,12 +27,15 @@ with open(".clang-format") as f:
 
 CLANG_FORMAT_BIN = os.getenv("CLANG_FORMAT_BIN")
 if CLANG_FORMAT_BIN is None:
-    p = subprocess.Popen(["clang-format", "--version"], stdout=subprocess.PIPE)
-    o, _ = p.communicate()
-    o = str(o, "utf-8")
-    o = o[len("clang-format version "):].strip()
-    o = o[:o.find(".")]
-    o = int(o)
+    o = 0
+    try:
+        p = subprocess.Popen(["clang-format", "--version"], stdout=subprocess.PIPE)
+        o, _ = p.communicate()
+        o = str(o, "utf-8")
+        o = o[len("clang-format version "):].strip()
+        o = o[:o.find(".")]
+        o = int(o)
+    except: pass
     if o < 7:
         if subprocess.call(['which', 'clang-format-7'], stdout=subprocess.PIPE) == 0:
             CLANG_FORMAT_BIN = 'clang-format-7'

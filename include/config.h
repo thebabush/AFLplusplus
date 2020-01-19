@@ -9,7 +9,7 @@
                         Andrea Fioraldi <andreafioraldi@gmail.com>
 
    Copyright 2016, 2017 Google Inc. All rights reserved.
-   Copyright 2019 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@
 
 /* Version string: */
 
-#define VERSION "++2.58d"  // c = release, d = volatile github dev
+#define VERSION "++2.60d"  // c = release, d = volatile github dev
 
 /******************************************************
  *                                                    *
@@ -41,7 +41,7 @@
 
 /* Comment out to disable fancy ANSI boxes and use poor man's 7-bit UI: */
 
-#ifndef ANDROID_DISABLE_FANCY // Fancy boxes are ugly from adb
+#ifndef ANDROID_DISABLE_FANCY  // Fancy boxes are ugly from adb
 #define FANCY_BOXES
 #endif
 
@@ -55,18 +55,21 @@
 #define EXEC_TM_ROUND 20
 
 /* 64bit arch MACRO */
-#if (defined (__x86_64__) || defined (__arm64__) || defined (__aarch64__))
+#if (defined(__x86_64__) || defined(__arm64__) || defined(__aarch64__))
 #define WORD_SIZE_64 1
 #endif
 
 /* Default memory limit for child process (MB): */
 
-#ifndef WORD_SIZE_64
-#define MEM_LIMIT 25
-#else
-#define MEM_LIMIT 50
-#endif                                                      /* ^!WORD_SIZE_64 */
-
+#ifndef __NetBSD__
+# ifndef WORD_SIZE_64
+#  define MEM_LIMIT 25
+# else
+#  define MEM_LIMIT 50
+# endif                                                    /* ^!WORD_SIZE_64 */
+#else /* NetBSD's kernel needs more space for stack, see discussion for issue #165 */
+# define MEM_LIMIT 200
+#endif
 /* Default memory limit when running in QEMU mode (MB): */
 
 #define MEM_LIMIT_QEMU 200

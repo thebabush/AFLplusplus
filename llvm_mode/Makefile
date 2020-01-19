@@ -1,5 +1,5 @@
 #
-# american fuzzy lop - LLVM instrumentation
+# american fuzzy lop++ - LLVM instrumentation
 # -----------------------------------------
 #
 # Written by Laszlo Szekeres <lszekeres@google.com> and
@@ -29,30 +29,46 @@ ifeq "$(shell uname)" "OpenBSD"
   LLVM_CONFIG ?= $(BIN_PATH)/llvm-config
   HAS_OPT = $(shell test -x $(BIN_PATH)/opt && echo 0 || echo 1)
   ifeq "$(HAS_OPT)" "1"
-    $(error llvm_mode needs a complete llvm installation (versions 3.8.0 up to 9) -> e.g. "pkg_add llvm-7.0.1p9")
+    $(error llvm_mode needs a complete llvm installation (versions 3.8.0 up to 10) -> e.g. "pkg_add llvm-7.0.1p9")
   endif
 else
   LLVM_CONFIG ?= llvm-config
 endif
 
-LLVMVER  = $(shell $(LLVM_CONFIG) --version 2>/dev/null)
-LLVM_UNSUPPORTED = $(shell $(LLVM_CONFIG) --version 2>/dev/null | egrep -q '^[12]|^3\.0|^1[0-9]' && echo 1 || echo 0 )
+LLVMVER  = $(shell $(LLVM_CONFIG) --version 2>/dev/null )
+LLVM_UNSUPPORTED = $(shell $(LLVM_CONFIG) --version 2>/dev/null | egrep -q '^3\.[0-7]|^1[1-9]' && echo 1 || echo 0 )
+LLVM_NEW_API = $(shell $(LLVM_CONFIG) --version 2>/dev/null | egrep -q '^1[0-9]' && echo 1 || echo 0 )
 LLVM_MAJOR = $(shell $(LLVM_CONFIG) --version 2>/dev/null | sed 's/\..*//')
 LLVM_BINDIR = $(shell $(LLVM_CONFIG) --bindir 2>/dev/null)
+LLVM_STDCXX = gnu++11
+LLVM_APPLE = $(shell clang -v 2>&1 | grep -iq apple && echo 1 || echo 0)
 
-ifeq "$(LLVM_UNSUPPORTED)" "1"
-  $(warn llvm_mode only supports versions 3.8.0 up to 9)
+ifeq "$(LLVMVER)" ""
+  $(warning llvm_mode needs llvm-config, which was not found)
 endif
 
-# this is not visible yet:
+ifeq "$(LLVM_UNSUPPORTED)" "1"
+  $(warning llvm_mode only supports llvm versions 3.8.0 up to 10)
+endif
+
 ifeq "$(LLVM_MAJOR)" "9"
   $(info llvm_mode detected llvm 9, enabling neverZero implementation)
+endif
+
+ifeq "$(LLVM_NEW_API)" "1"
+  $(info llvm_mode detected llvm 10+, enabling neverZero implementation and c++14)
+  LLVM_STDCXX = c++14
+endif
+
+ifeq "$(LLVM_APPLE)" "1"
+  $(warning llvm_mode will not compile with Xcode clang...)
 endif
 
 CFLAGS      ?= -O3 -funroll-loops
 CFLAGS      += -Wall -D_FORTIFY_SOURCE=2 -g -Wno-pointer-sign -I ../include/ \
                -DAFL_PATH=\"$(HELPER_PATH)\" -DBIN_PATH=\"$(BIN_PATH)\" \
-               -DLLVM_BINDIR=\"$(LLVM_BINDIR)\" -DVERSION=\"$(VERSION)\"
+               -DLLVM_BINDIR=\"$(LLVM_BINDIR)\" -DVERSION=\"$(VERSION)\" \
+               -DLLVM_VERSION=\"$(LLVMVER)\"
 ifdef AFL_TRACE_PC
   CFLAGS    += -DUSE_TRACE_PC=1
 endif
@@ -89,7 +105,7 @@ ifeq "$(shell test -e $(CC) || echo 1 )" "1"
     CXX        = $(BIN_DIR)/clang++
   else
     # hope for the best
-    $(warn we have trouble finding clang/clang++ - llvm-config is not helping us)
+    $(warning we have trouble finding clang/clang++ - llvm-config is not helping us)
     CC         = clang
     CXX        = clang++
   endif
@@ -100,7 +116,7 @@ endif
 CLANGVER = $(shell $(CC) --version | sed -E -ne '/^.*version\ ([0-9]\.[0-9]\.[0-9]).*/s//\1/p')
 
 
-ifeq "$(shell echo '\#include <sys/ipc.h>@\#include <sys/shm.h>@int main() { int _id = shmget(IPC_PRIVATE, 65536, IPC_CREAT | IPC_EXCL | 0600); shmctl(_id, IPC_RMID, 0); return 0;}' | tr @ '\n' | $(CC) -x c - -o .test2 2>/dev/null && echo 1 || echo 0 )" "1"
+ifeq "$(shell echo '\#include <sys/ipc.h>@\#include <sys/shm.h>@int main() { int _id = shmget(IPC_PRIVATE, 65536, IPC_CREAT | IPC_EXCL | 0600); shmctl(_id, IPC_RMID, 0); return 0;}' | tr @ '\n' | $(CC) -x c - -o .test2 2>/dev/null && echo 1 || echo 0 ; rm -f .test2 )" "1"
         SHMAT_OK=1
 else
         SHMAT_OK=0
@@ -121,12 +137,26 @@ else
 endif
 
 ifneq "$(CLANGVER)" "$(LLVMVER)"
-  CC = $(shell llvm-config --bindir)/clang
-  CXX = $(shell llvm-config --bindir)/clang++
+  CC = $(shell $(LLVM_CONFIG) --bindir)/clang
+  CXX = $(shell $(LLVM_CONFIG) --bindir)/clang++
 endif
 
-all: test_shm test_deps $(PROGS) afl-clang-fast.8 test_build all_done
+# If prerequisites are not given, warn, do not build anything, and exit with code 0
+ifeq "$(LLVMVER)" ""
+  NO_BUILD = 1
+endif
 
+ifneq "$(LLVM_UNSUPPORTED)$(LLVM_APPLE)" "00"
+  NO_BUILD = 1
+endif
+
+ifeq "$(NO_BUILD)" "1"
+  TARGETS = no_build
+else
+  TARGETS = test_shm test_deps $(PROGS) afl-clang-fast.8 test_build all_done
+endif
+
+all: $(TARGETS)
 
 ifeq "$(SHMAT_OK)" "1"
 
@@ -141,11 +171,15 @@ test_shm:
 
 endif
 
+no_build:
+	@printf "%b\\n" "\\033[0;31mPrerequisites are not met, skipping build llvm_mode\\033[0m"
 
 test_deps:
 ifndef AFL_TRACE_PC
 	@echo "[*] Checking for working 'llvm-config'..."
+ ifneq "$(LLVM_APPLE)" "1"
 	@which $(LLVM_CONFIG) >/dev/null 2>&1 || ( echo "[-] Oops, can't find 'llvm-config'. Install clang or set \$$LLVM_CONFIG or \$$PATH beforehand."; echo "    (Sometimes, the binary will be named llvm-config-3.5 or something like that.)"; exit 1 )
+ endif
 else
 	@echo "[!] Note: using -fsanitize=trace-pc mode (this will fail with older LLVM)."
 endif
@@ -167,10 +201,10 @@ endif
 	ln -sf afl-clang-fast ../afl-clang-fast++
 
 ../libLLVMInsTrim.so: LLVMInsTrim.so.cc MarkNodes.cc | test_deps
-	$(CXX) $(CLANG_CFL) -DLLVMInsTrim_EXPORTS -fno-rtti -fPIC -std=gnu++11 -shared $< MarkNodes.cc -o $@ $(CLANG_LFL)
+	$(CXX) $(CLANG_CFL) -DLLVMInsTrim_EXPORTS -fno-rtti -fPIC -std=$(LLVM_STDCXX) -shared $< MarkNodes.cc -o $@ $(CLANG_LFL)
 
 ../afl-llvm-pass.so: afl-llvm-pass.so.cc | test_deps
-	$(CXX) $(CLANG_CFL) -DLLVMInsTrim_EXPORTS -fno-rtti -fPIC -std=gnu++11 -shared $< -o $@ $(CLANG_LFL)
+	$(CXX) $(CLANG_CFL) -DLLVMInsTrim_EXPORTS -fno-rtti -fPIC -std=$(LLVM_STDCXX) -shared $< -o $@ $(CLANG_LFL)
 
 # laf
 ../split-switches-pass.so:	split-switches-pass.so.cc | test_deps
@@ -228,5 +262,5 @@ vpath  % ..
 	ln -sf afl-clang-fast.8 ../afl-clang-fast++.8
 
 clean:
-	rm -f *.o *.so *~ a.out core core.[1-9][0-9]* .test2 test-instr .test-instr0 .test-instr1 
+	rm -f *.o *.so *~ a.out core core.[1-9][0-9]* .test2 test-instr .test-instr0 .test-instr1 afl-llvm-pass.dwo
 	rm -f $(PROGS) ../afl-clang-fast++ ../afl-clang-fast*.8

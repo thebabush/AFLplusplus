@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# american fuzzy lop - QEMU build script
+# american fuzzy lop++ - QEMU build script
 # --------------------------------------
 #
 # Originally written by Andrew Griffiths <agriffiths@google.com> and
@@ -13,7 +13,7 @@
 # counters by Andrea Fioraldi <andreafioraldi@gmail.com>
 #
 # Copyright 2015, 2016, 2017 Google Inc. All rights reserved.
-# Copyright 2019 AFLplusplus Project. All rights reserved.
+# Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -44,7 +44,7 @@ echo "[*] Performing basic sanity checks..."
 if [ ! "`uname -s`" = "Linux" ]; then
 
   echo "[-] Error: QEMU instrumentation is supported only on Linux."
-  exit 1
+  exit 0
 
 fi
 
@@ -162,7 +162,7 @@ echo "[+] Patching done."
 if [ "$STATIC" = "1" ]; then
 
   CFLAGS="-O3 -ggdb" ./configure --disable-bsd-user --disable-guest-agent --disable-strip --disable-werror \
-	  --disable-gcrypt --disable-debug-info --disable-debug-tcg --enable-docs --disable-tcg-interpreter \
+	  --disable-gcrypt --disable-debug-info --disable-debug-tcg --disable-tcg-interpreter \
 	  --enable-attr --disable-brlapi --disable-linux-aio --disable-bzip2 --disable-bluez --disable-cap-ng \
 	  --disable-curl --disable-fdt --disable-glusterfs --disable-gnutls --disable-nettle --disable-gtk \
 	  --disable-rdma --disable-libiscsi --disable-vnc-jpeg --enable-kvm --disable-lzo --disable-curses \
@@ -243,10 +243,9 @@ else
 fi
 
 echo "[+] Building libcompcov ..."
-make -C libcompcov
+make -C libcompcov && echo "[+] libcompcov ready"
 echo "[+] Building unsigaction ..."
-make -C unsigaction
-echo "[+] libcompcov ready"
+make -C unsigaction && echo "[+] unsigaction ready"
 echo "[+] All done for qemu_mode, enjoy!"
 
 exit 0

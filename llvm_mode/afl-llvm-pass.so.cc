@@ -1,5 +1,5 @@
 /*
-   american fuzzy lop - LLVM-mode instrumentation pass
+   american fuzzy lop++ - LLVM-mode instrumentation pass
    ---------------------------------------------------
 
    Written by Laszlo Szekeres <lszekeres@google.com> and
@@ -9,6 +9,7 @@
    from afl-as.c are Michal's fault.
 
    Copyright 2015, 2016 Google Inc. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -74,6 +75,28 @@ class AFLCoverage : public ModulePass {
 
   }
 
+  // ripped from aflgo
+  static bool isBlacklisted(const Function *F) {
+
+    static const SmallVector<std::string, 4> Blacklist = {
+
+        "asan.",
+        "llvm.",
+        "sancov.",
+        "__ubsan_handle_",
+
+    };
+
+    for (auto const &BlacklistFunc : Blacklist) {
+
+      if (F->getName().startswith(BlacklistFunc)) { return true; }
+
+    }
+
+    return false;
+
+  }
+
   bool runOnModule(Module &M) override;
 
   // StringRef getPassName() const override {
@@ -94,12 +117,12 @@ bool AFLCoverage::runOnModule(Module &M) {
 
   LLVMContext &C = M.getContext();
 
-  IntegerType *Int8Ty = IntegerType::getInt8Ty(C);
-  IntegerType *Int32Ty = IntegerType::getInt32Ty(C);
-  struct timeval            tv;
-  struct timezone           tz;
-  u32                       rand_seed;
-  unsigned int cur_loc = 0;
+  IntegerType *   Int8Ty = IntegerType::getInt8Ty(C);
+  IntegerType *   Int32Ty = IntegerType::getInt32Ty(C);
+  struct timeval  tv;
+  struct timezone tz;
+  u32             rand_seed;
+  unsigned int    cur_loc = 0;
 
   /* Setup random() so we get Actually Random(TM) outputs from AFL_R() */
   gettimeofday(&tv, &tz);
@@ -157,7 +180,10 @@ bool AFLCoverage::runOnModule(Module &M) {
 
   int inst_blocks = 0;
 
-  for (auto &F : M)
+  for (auto &F : M) {
+
+    if (isBlacklisted(&F)) continue;
+
     for (auto &BB : F) {
 
       BasicBlock::iterator IP = BB.getFirstInsertionPt();
@@ -371,6 +397,8 @@ bool AFLCoverage::runOnModule(Module &M) {
       inst_blocks++;
 
     }
+
+  }
 
   /* Say something nice. */
 

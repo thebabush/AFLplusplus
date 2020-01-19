@@ -9,7 +9,7 @@
                         Andrea Fioraldi <andreafioraldi@gmail.com>
 
    Copyright 2016, 2017 Google Inc. All rights reserved.
-   Copyright 2019 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -87,7 +87,7 @@ u8 has_new_bits(u8* virgin_map) {
 
   u32 i = (MAP_SIZE >> 2);
 
-#endif                                                       /* ^WORD_SIZE_64 */
+#endif                                                     /* ^WORD_SIZE_64 */
 
   u8 ret = 0;
 
@@ -125,7 +125,7 @@ u8 has_new_bits(u8* virgin_map) {
         else
           ret = 1;
 
-#endif                                                       /* ^WORD_SIZE_64 */
+#endif                                                     /* ^WORD_SIZE_64 */
 
       }
 
@@ -306,7 +306,7 @@ void simplify_trace(u32* mem) {
 
 }
 
-#endif                                                       /* ^WORD_SIZE_64 */
+#endif                                                     /* ^WORD_SIZE_64 */
 
 /* Destructively classify execution counts in a trace. This is used as a
    preprocessing step for any newly acquired traces. Called on every exec,
@@ -391,7 +391,7 @@ void classify_counts(u32* mem) {
 
 }
 
-#endif                                                       /* ^WORD_SIZE_64 */
+#endif                                                     /* ^WORD_SIZE_64 */
 
 /* Compact trace bytes into a smaller bitmap. We effectively just drop the
    count information here. This is called only sporadically, for some
@@ -524,7 +524,7 @@ u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
   struct queue_entry* q = queue;
   while (q) {
 
-    if (q->exec_cksum == cksum) q->n_fuzz = q->n_fuzz + 1;
+    if (q->exec_cksum == cksum) { q->n_fuzz = q->n_fuzz + 1; break ; }
 
     q = q->next;
 
@@ -599,7 +599,7 @@ u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
         simplify_trace((u64*)trace_bits);
 #else
         simplify_trace((u32*)trace_bits);
-#endif                                                       /* ^WORD_SIZE_64 */
+#endif                                                     /* ^WORD_SIZE_64 */
 
         if (!has_new_bits(virgin_tmout)) return keeping;
 
@@ -662,7 +662,7 @@ u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
         simplify_trace((u64*)trace_bits);
 #else
         simplify_trace((u32*)trace_bits);
-#endif                                                       /* ^WORD_SIZE_64 */
+#endif                                                     /* ^WORD_SIZE_64 */
 
         if (!has_new_bits(virgin_crash)) return keeping;
 
@@ -683,12 +683,17 @@ u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 #endif                                                    /* ^!SIMPLE_FILES */
 
       ++unique_crashes;
-
-      if (infoexec)  // if the user wants to be informed on new crashes - do
-                     // that
+      if (infoexec) {  // if the user wants to be informed on new crashes - do
+#if !TARGET_OS_IPHONE
+                       // that
         if (system(infoexec) == -1)
           hnb += 0;  // we dont care if system errors, but we dont want a
                      // compiler warning either
+#else
+        WARNF("command execution unsupported");
+#endif
+
+      }
 
       last_crash_time = get_cur_time();
       last_crash_execs = total_execs;

@@ -1,5 +1,5 @@
 /*
-   american fuzzy lop - LLVM-mode wrapper for clang
+   american fuzzy lop++ - LLVM-mode wrapper for clang
    ------------------------------------------------
 
    Written by Laszlo Szekeres <lszekeres@google.com> and
@@ -8,6 +8,7 @@
    LLVM integration design comes from Laszlo Szekeres.
 
    Copyright 2015, 2016 Google Inc. All rights reserved.
+   Copyright 2019-2020 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -49,7 +50,11 @@ static void find_obj(u8* argv0) {
 
   if (afl_path) {
 
+#ifdef __ANDROID__
+    tmp = alloc_printf("%s/afl-llvm-rt.so", afl_path);
+#else
     tmp = alloc_printf("%s/afl-llvm-rt.o", afl_path);
+#endif
 
     if (!access(tmp, R_OK)) {
 
@@ -73,7 +78,11 @@ static void find_obj(u8* argv0) {
     dir = ck_strdup(argv0);
     *slash = '/';
 
+#ifdef __ANDROID__
+    tmp = alloc_printf("%s/afl-llvm-rt.so", afl_path);
+#else
     tmp = alloc_printf("%s/afl-llvm-rt.o", dir);
+#endif
 
     if (!access(tmp, R_OK)) {
 
@@ -88,7 +97,13 @@ static void find_obj(u8* argv0) {
 
   }
 
+#ifdef __ANDROID__
+  if (!access(AFL_PATH "/afl-llvm-rt.so", R_OK)) {
+
+#else
   if (!access(AFL_PATH "/afl-llvm-rt.o", R_OK)) {
+
+#endif
 
     obj_path = AFL_PATH;
     return;
@@ -122,15 +137,19 @@ static void edit_params(u32 argc, char** argv) {
   if (!strcmp(name, "afl-clang-fast++")) {
 
     u8* alt_cxx = getenv("AFL_CXX");
-    if (has_llvm_config)  snprintf(llvm_fullpath, sizeof(llvm_fullpath), "%s/clang++", LLVM_BINDIR);
-    else sprintf(llvm_fullpath, "clang++");
+    if (has_llvm_config)
+      snprintf(llvm_fullpath, sizeof(llvm_fullpath), "%s/clang++", LLVM_BINDIR);
+    else
+      sprintf(llvm_fullpath, "clang++");
     cc_params[0] = alt_cxx ? alt_cxx : (u8*)llvm_fullpath;
 
   } else {
 
     u8* alt_cc = getenv("AFL_CC");
-    if (has_llvm_config)  snprintf(llvm_fullpath, sizeof(llvm_fullpath), "%s/clang", LLVM_BINDIR);
-    else sprintf(llvm_fullpath, "clang");
+    if (has_llvm_config)
+      snprintf(llvm_fullpath, sizeof(llvm_fullpath), "%s/clang", LLVM_BINDIR);
+    else
+      sprintf(llvm_fullpath, "clang");
     cc_params[0] = alt_cc ? alt_cc : (u8*)llvm_fullpath;
 
   }
@@ -354,6 +373,7 @@ static void edit_params(u32 argc, char** argv) {
 
     }
 
+#ifndef __ANDROID__
     switch (bit_mode) {
 
       case 0:
@@ -377,6 +397,8 @@ static void edit_params(u32 argc, char** argv) {
         break;
 
     }
+
+#endif
 
   }
 
@@ -421,8 +443,10 @@ int main(int argc, char** argv) {
 
         "You can specify custom next-stage toolchain via AFL_CC and AFL_CXX. "
         "Setting\n"
-        "AFL_HARDEN enables hardening optimizations in the compiled code.\n\n",
-        BIN_PATH, BIN_PATH);
+        "AFL_HARDEN enables hardening optimizations in the compiled code.\n\n"
+        "afl-clang-fast was built for llvm %s with the llvm binary path of "
+        "\"%s\".\n\n",
+        BIN_PATH, BIN_PATH, LLVM_VERSION, LLVM_BINDIR);
 
     exit(1);
 
@@ -437,7 +461,9 @@ int main(int argc, char** argv) {
 
   }
 
+#ifndef __ANDROID__
   find_obj(argv[0]);
+#endif
 
   edit_params(argc, argv);
 
